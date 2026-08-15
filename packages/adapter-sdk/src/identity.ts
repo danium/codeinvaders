@@ -12,6 +12,18 @@ const OPAQUE_ID_DOMAIN = 'io.github.danium.codeinvaders.opaque-id';
 const OPAQUE_ID_FORMAT = 'oid1_';
 const HMAC_HASH = 'SHA-256';
 const TEXT_ENCODER = new TextEncoder();
+const reflectApply = Reflect.apply;
+const stringNormalize = String.prototype.normalize;
+const stringCharCodeAt = String.prototype.charCodeAt;
+const textEncoderEncode = TextEncoder.prototype.encode;
+const typedArrayFill = Uint8Array.prototype.fill;
+const typedArraySet = Uint8Array.prototype.set;
+const isArrayBufferView = ArrayBuffer.isView;
+const isArray = Array.isArray;
+const isInteger = Number.isInteger;
+const freeze = Object.freeze;
+const objectGetPrototypeOf = Object.getPrototypeOf;
+const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 type Bytes = Uint8Array<ArrayBuffer>;
 
@@ -26,7 +38,7 @@ export const MAX_OPAQUE_ID_COMPONENTS = 8;
 /** Maximum UTF-8 bytes across all canonicalized input components. */
 export const MAX_OPAQUE_ID_INPUT_BYTES = 4_096;
 
-export const opaqueIdEntityTypes = Object.freeze([
+export const opaqueIdEntityTypes = freeze([
   'installation',
   'workspace',
   'repository',
@@ -57,7 +69,7 @@ export type OpaqueIdErrorCode =
   | 'crypto-unavailable'
   | 'derivation-failed';
 
-const OPAQUE_ID_ERROR_CODES = Object.freeze([
+const OPAQUE_ID_ERROR_CODES = freeze([
   'invalid-key',
   'invalid-entity-type',
   'invalid-identifier',
@@ -83,7 +95,7 @@ export class OpaqueIdError extends Error {
     super(`opaque id derivation failed: ${safeCode}`);
     this.name = 'OpaqueIdError';
     this.code = safeCode;
-    Object.freeze(this);
+    freeze(this);
   }
 }
 
@@ -95,30 +107,30 @@ function opaqueError(code: OpaqueIdErrorCode): OpaqueIdError {
   return new OpaqueIdError(code);
 }
 
-const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype);
-const TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
+const TYPED_ARRAY_PROTOTYPE = objectGetPrototypeOf(Uint8Array.prototype);
+const TYPED_ARRAY_TAG_GETTER = objectGetOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   Symbol.toStringTag,
 )?.get;
-const TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
+const TYPED_ARRAY_BUFFER_GETTER = objectGetOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   'buffer',
 )?.get;
-const TYPED_ARRAY_BYTE_OFFSET_GETTER = Object.getOwnPropertyDescriptor(
+const TYPED_ARRAY_BYTE_OFFSET_GETTER = objectGetOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   'byteOffset',
 )?.get;
-const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+const TYPED_ARRAY_BYTE_LENGTH_GETTER = objectGetOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   'byteLength',
 )?.get;
 
 function copyKey(key: unknown): Bytes {
   try {
-    if (!ArrayBuffer.isView(key) || TYPED_ARRAY_TAG_GETTER === undefined) {
+    if (!isArrayBufferView(key) || TYPED_ARRAY_TAG_GETTER === undefined) {
       throw new Error();
     }
-    const tag = TYPED_ARRAY_TAG_GETTER.call(key);
+    const tag = reflectApply(TYPED_ARRAY_TAG_GETTER, key, []);
     if (tag !== 'Int8Array' && tag !== 'Uint8Array' && tag !== 'Uint8ClampedArray') {
       throw new Error();
     }
@@ -130,13 +142,13 @@ function copyKey(key: unknown): Bytes {
       throw new Error();
     }
 
-    const byteLength = TYPED_ARRAY_BYTE_LENGTH_GETTER.call(key);
+    const byteLength = reflectApply(TYPED_ARRAY_BYTE_LENGTH_GETTER, key, []);
     if (byteLength !== OPAQUE_ID_KEY_BYTES) throw new Error();
-    const buffer = TYPED_ARRAY_BUFFER_GETTER.call(key);
-    const byteOffset = TYPED_ARRAY_BYTE_OFFSET_GETTER.call(key);
+    const buffer = reflectApply(TYPED_ARRAY_BUFFER_GETTER, key, []);
+    const byteOffset = reflectApply(TYPED_ARRAY_BYTE_OFFSET_GETTER, key, []);
     const source = new Uint8Array(buffer, byteOffset, byteLength);
     const copy = new Uint8Array(OPAQUE_ID_KEY_BYTES);
-    copy.set(source);
+    reflectApply(typedArraySet, copy, [source]);
     return copy;
   } catch {
     throw opaqueError('invalid-key');
@@ -156,10 +168,10 @@ function isControlCodePoint(codePoint: number): boolean {
 
 function validateUnicodeScalarString(value: string): void {
   for (let index = 0; index < value.length; index += 1) {
-    const first = value.charCodeAt(index);
+    const first = reflectApply(stringCharCodeAt, value, [index]);
     if (first >= 0xd800 && first <= 0xdbff) {
       if (index + 1 >= value.length) throw opaqueError('invalid-identifier');
-      const second = value.charCodeAt(index + 1);
+      const second = reflectApply(stringCharCodeAt, value, [index + 1]);
       if (second < 0xdc00 || second > 0xdfff) throw opaqueError('invalid-identifier');
       const codePoint = 0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00);
       if (isControlCodePoint(codePoint)) throw opaqueError('invalid-identifier');
@@ -183,7 +195,7 @@ function canonicalizeComponent(value: unknown): CanonicalComponent {
   validateUnicodeScalarString(value);
   let normalized: string;
   try {
-    normalized = value.normalize('NFC');
+    normalized = reflectApply(stringNormalize, value, ['NFC']);
   } catch {
     throw opaqueError('invalid-identifier');
   }
@@ -192,7 +204,7 @@ function canonicalizeComponent(value: unknown): CanonicalComponent {
     throw opaqueError('identifier-too-large');
   validateUnicodeScalarString(normalized);
 
-  const bytes = TEXT_ENCODER.encode(normalized) as Bytes;
+  const bytes = reflectApply(textEncoderEncode, TEXT_ENCODER, [normalized]) as Bytes;
   if (bytes.byteLength > MAX_OPAQUE_ID_INPUT_BYTES) throw opaqueError('identifier-too-large');
   return { bytes };
 }
@@ -203,9 +215,9 @@ function canonicalizeInput(input: OpaqueIdInput): readonly Bytes[] {
   let length: number | undefined;
   let values: unknown[] | undefined;
   try {
-    if (!Array.isArray(input)) throw new Error();
+    if (!isArray(input)) throw new Error();
     length = input.length;
-    if (!Number.isInteger(length) || length < 1) throw new Error();
+    if (!isInteger(length) || length < 1) throw new Error();
     if (length <= MAX_OPAQUE_ID_COMPONENTS) {
       const snapshot = new Array<unknown>(length);
       for (let index = 0; index < length; index += 1) {
@@ -227,7 +239,7 @@ function canonicalizeInput(input: OpaqueIdInput): readonly Bytes[] {
     const component = canonicalizeComponent(values[index]);
     totalBytes += component.bytes.byteLength;
     if (totalBytes > MAX_OPAQUE_ID_INPUT_BYTES) throw opaqueError('identifier-too-large');
-    components.push(component.bytes);
+    components[components.length] = component.bytes;
   }
   return components;
 }
@@ -242,9 +254,9 @@ function writeUint32(target: Uint8Array, offset: number, value: number): number 
 
 function framedMessage(entityType: OpaqueIdEntityType, components: readonly Bytes[]): Bytes {
   const staticParts = [
-    TEXT_ENCODER.encode(OPAQUE_ID_DOMAIN),
-    TEXT_ENCODER.encode('1'),
-    TEXT_ENCODER.encode(entityType),
+    reflectApply(textEncoderEncode, TEXT_ENCODER, [OPAQUE_ID_DOMAIN]),
+    reflectApply(textEncoderEncode, TEXT_ENCODER, ['1']),
+    reflectApply(textEncoderEncode, TEXT_ENCODER, [entityType]),
   ];
   let length = 4;
   for (let index = 0; index < staticParts.length; index += 1) {
@@ -264,14 +276,14 @@ function framedMessage(entityType: OpaqueIdEntityType, components: readonly Byte
     const part = staticParts[index];
     if (part === undefined) throw opaqueError('derivation-failed');
     offset = writeUint32(message, offset, part.byteLength);
-    message.set(part, offset);
+    reflectApply(typedArraySet, message, [part, offset]);
     offset += part.byteLength;
   }
   for (let index = 0; index < components.length; index += 1) {
     const component = components[index];
     if (component === undefined) throw opaqueError('derivation-failed');
     offset = writeUint32(message, offset, component.byteLength);
-    message.set(component, offset);
+    reflectApply(typedArraySet, message, [component, offset]);
     offset += component.byteLength;
   }
   return message;
@@ -296,14 +308,30 @@ function base64Url(bytes: Uint8Array): string {
 export function isOpaqueId(value: unknown): value is OpaqueId {
   if (typeof value !== 'string') return false;
   if (value.length !== OPAQUE_ID_FORMAT.length + 43) return false;
-  if (!value.startsWith(OPAQUE_ID_FORMAT)) return false;
+  for (let index = 0; index < OPAQUE_ID_FORMAT.length; index += 1) {
+    if (value[index] !== OPAQUE_ID_FORMAT[index]) return false;
+  }
 
   for (let index = OPAQUE_ID_FORMAT.length; index < value.length; index += 1) {
-    if (BASE64URL_ALPHABET.indexOf(value[index] ?? '') < 0) return false;
+    const character = value[index];
+    let found = false;
+    for (let alphabetIndex = 0; alphabetIndex < BASE64URL_ALPHABET.length; alphabetIndex += 1) {
+      if (BASE64URL_ALPHABET[alphabetIndex] === character) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
   }
   const finalCharacter = value[value.length - 1];
   if (finalCharacter === undefined) return false;
-  const finalCharacterIndex = BASE64URL_ALPHABET.indexOf(finalCharacter);
+  let finalCharacterIndex = -1;
+  for (let index = 0; index < BASE64URL_ALPHABET.length; index += 1) {
+    if (BASE64URL_ALPHABET[index] === finalCharacter) {
+      finalCharacterIndex = index;
+      break;
+    }
+  }
   return finalCharacterIndex >= 0 && (finalCharacterIndex & 0x03) === 0;
 }
 
@@ -320,11 +348,11 @@ export async function createOpaqueIdDeriver(key: OpaqueIdKey): Promise<OpaqueIdD
   try {
     cryptoApi = globalThis.crypto;
   } catch {
-    copiedKey.fill(0);
+    reflectApply(typedArrayFill, copiedKey, [0]);
     throw opaqueError('crypto-unavailable');
   }
   if (cryptoApi === undefined || cryptoApi.subtle === undefined) {
-    copiedKey.fill(0);
+    reflectApply(typedArrayFill, copiedKey, [0]);
     throw opaqueError('crypto-unavailable');
   }
 
@@ -338,10 +366,10 @@ export async function createOpaqueIdDeriver(key: OpaqueIdKey): Promise<OpaqueIdD
       ['sign'],
     );
   } catch {
-    copiedKey.fill(0);
+    reflectApply(typedArrayFill, copiedKey, [0]);
     throw opaqueError('derivation-failed');
   }
-  copiedKey.fill(0);
+  reflectApply(typedArrayFill, copiedKey, [0]);
 
   const derive = async (
     entityType: OpaqueIdEntityType,
@@ -361,7 +389,7 @@ export async function createOpaqueIdDeriver(key: OpaqueIdKey): Promise<OpaqueIdD
     return `${OPAQUE_ID_FORMAT}${base64Url(output)}` as OpaqueId;
   };
 
-  return Object.freeze({ derive });
+  return freeze({ derive });
 }
 
 /** Convenience form for one derivation; use `createOpaqueIdDeriver` for reuse. */
