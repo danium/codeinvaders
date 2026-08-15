@@ -4,7 +4,7 @@ This file is generated from the committed `pnpm-lock.yaml` dependency graph.
 Regenerate it with `pnpm third-party-notices:generate`; CI uses
 `pnpm third-party-notices:check` to ensure it is current.
 
-Dependency records: 130
+Dependency records: 135
 
 ## @eslint-community/eslint-utils 4.10.1
 
@@ -272,11 +272,25 @@ Dependency records: 130
 - Homepage: https://github.com/acornjs/acorn
 - Description: ECMAScript parser
 
+## ajv-formats 3.0.1
+
+- License: MIT
+- Author: Evgeny Poberezkin
+- Homepage: https://github.com/ajv-validator/ajv-formats#readme
+- Description: Format validation for Ajv v7+
+
 ## ajv 6.15.0
 
 - License: MIT
 - Author: Evgeny Poberezkin
-- Homepage: https://github.com/ajv-validator/ajv
+- Homepage: https://ajv.js.org
+- Description: Another JSON Schema Validator
+
+## ajv 8.17.1
+
+- License: MIT
+- Author: Evgeny Poberezkin
+- Homepage: https://ajv.js.org
 - Description: Another JSON Schema Validator
 
 ## assertion-error 2.0.1
@@ -453,6 +467,13 @@ Dependency records: 130
 - Homepage: https://github.com/hiddentao/fast-levenshtein#readme
 - Description: Efficient implementation of Levenshtein algorithm with locale-specific collator support.
 
+## fast-uri 3.1.5
+
+- License: BSD-3-Clause
+- Author: Vincent Le Goff
+- Homepage: https://github.com/fastify/fast-uri
+- Description: Dependency-free RFC 3986 URI toolbox
+
 ## fdir 6.5.0
 
 - License: MIT
@@ -545,6 +566,13 @@ Dependency records: 130
 - Description: JSON parse & stringify that supports binary via bops & base64
 
 ## json-schema-traverse 0.4.1
+
+- License: MIT
+- Author: Evgeny Poberezkin
+- Homepage: https://github.com/epoberezkin/json-schema-traverse#readme
+- Description: Traverse JSON Schema passing each schema object to callback
+
+## json-schema-traverse 1.0.0
 
 - License: MIT
 - Author: Evgeny Poberezkin
@@ -714,6 +742,13 @@ Dependency records: 130
 - Author: Mathias Bynens
 - Homepage: https://mths.be/punycode
 - Description: A robust Punycode converter that fully complies to RFC 3492 and RFC 5891, and works on nearly all JavaScript platforms.
+
+## require-from-string 2.0.2
+
+- License: MIT
+- Author: Vsevolod Strukchinsky
+- Homepage: https://github.com/floatdrop/require-from-string#readme
+- Description: Require module from string
 
 ## rolldown 1.2.4
 

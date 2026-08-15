@@ -15,7 +15,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
+    "test": "vitest run --config vitest.config.mjs",
     "third-party-notices:generate": "node scripts/generate-third-party-notices.mjs",
     "third-party-notices:check": "node scripts/generate-third-party-notices.mjs --check",
     "check": "pnpm third-party-notices:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
