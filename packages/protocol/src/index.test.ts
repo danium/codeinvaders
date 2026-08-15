@@ -14,6 +14,7 @@ import {
   extensionEventSchema,
   isCoreEvent,
   protocolId,
+  protocolDiagnosticCodes,
   protocolSchemaKeywordNames,
   registerProtocolSchemaKeywords,
   validateEvent,
@@ -327,6 +328,27 @@ void emptyPartialCapability;
 const fixture = validEventFixture;
 
 describe('AAP Draft 2020-12 conformance', () => {
+  it('publishes an immutable diagnostic registry with stable order and content', () => {
+    expect(protocolDiagnosticCodes).toEqual([
+      'invalid-envelope',
+      'invalid-scope',
+      'invalid-data',
+      'event-too-large',
+      'event-too-deep',
+      'unsupported-major',
+      'invalid-version',
+      'unknown-event',
+      'invalid-extension',
+      'extension-preserved',
+    ]);
+    expect(Object.isFrozen(protocolDiagnosticCodes)).toBe(true);
+    const before = [...protocolDiagnosticCodes];
+    const registry = protocolDiagnosticCodes as unknown as object;
+    expect(Reflect.set(registry, '0', 'tampered')).toBe(false);
+    expect(Reflect.set(registry, 'tampered', true)).toBe(false);
+    expect(protocolDiagnosticCodes).toEqual(before);
+  });
+
   it('keeps terminal evidence explicit and rejects timeout success or unlinked corrections', () => {
     expect(canTransferTerminalState('exact-ordinal-continuity')).toBe(false);
     expect(canTransferTerminalState('exact-normalized-identity')).toBe(true);

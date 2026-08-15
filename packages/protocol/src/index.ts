@@ -488,18 +488,23 @@ export type CoreEvent<T extends CoreEventType = CoreEventType> = CoreEventEnvelo
   CoreEventPayload<T>;
 export type AnyCoreEvent = { [T in CoreEventType]: CoreEvent<T> }[CoreEventType];
 
+/** Stable diagnostic-code registry used by documentation and integrations. */
+export const protocolDiagnosticCodes = Object.freeze([
+  'invalid-envelope',
+  'invalid-scope',
+  'invalid-data',
+  'event-too-large',
+  'event-too-deep',
+  'unsupported-major',
+  'invalid-version',
+  'unknown-event',
+  'invalid-extension',
+  'extension-preserved',
+] as const);
+export type ProtocolDiagnosticCode = (typeof protocolDiagnosticCodes)[number];
+
 export interface ProtocolDiagnostic {
-  readonly code:
-    | 'invalid-envelope'
-    | 'invalid-scope'
-    | 'invalid-data'
-    | 'event-too-large'
-    | 'event-too-deep'
-    | 'unsupported-major'
-    | 'invalid-version'
-    | 'unknown-event'
-    | 'invalid-extension'
-    | 'extension-preserved';
+  readonly code: ProtocolDiagnosticCode;
   readonly severity: 'error' | 'warning';
   readonly field?:
     | 'spec'

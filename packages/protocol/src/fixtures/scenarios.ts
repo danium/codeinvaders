@@ -140,6 +140,12 @@ export const extensionFixtures: readonly ExtensionFixture[] = deepFreeze([
     expectedStatus: 'preserved-extension',
     expectedDiagnostic: { code: 'extension-preserved', severity: 'warning', field: 'type' },
   },
+  {
+    name: 'minimum-two-component-namespace-is-preserved',
+    event: { ...extensionBase(), type: 'x.a.b' },
+    expectedStatus: 'preserved-extension',
+    expectedDiagnostic: { code: 'extension-preserved', severity: 'warning', field: 'type' },
+  },
 ]);
 
 /** Invalid extension envelopes exercise type, metadata, fallback, and bounded-payload failures. */

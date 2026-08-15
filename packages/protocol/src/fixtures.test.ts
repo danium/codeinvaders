@@ -88,12 +88,31 @@ describe('protocol conformance fixtures', () => {
       expect(result.status, fixture.name).toBe(fixture.expectedStatus);
       expect(result.diagnostics, fixture.name).toEqual([fixture.expectedDiagnostic]);
       if (result.status === 'preserved-extension') {
-        expect(result.event.type, fixture.name).toBe('x.io.example.telemetry');
+        expect(result.event.type, fixture.name).toBe(fixture.event.type);
         expect(result.event.extension.fallback, fixture.name).toBe('preserve-in-journal');
         expect(result.event.extension.vendorField, fixture.name).toBe('opaque');
         expect(result.event.data.marker, fixture.name).toBe('opaque');
       }
     }
+  });
+
+  it('enforces the minimum two-component extension namespace', () => {
+    const minimum = extensionFixtures.find((fixture) => fixture.event.type === 'x.a.b');
+    const oneComponent = invalidExtensionFixtures.find(
+      (fixture) => fixture.event.type === 'x.example',
+    );
+    expect(minimum).toBeDefined();
+    expect(oneComponent).toBeDefined();
+    if (minimum === undefined || oneComponent === undefined) return;
+    expect(validateEvent(minimum.event)).toEqual({
+      status: 'preserved-extension',
+      event: minimum.event,
+      diagnostics: [minimum.expectedDiagnostic],
+    });
+    expect(validateEvent(oneComponent.event)).toEqual({
+      status: 'rejected',
+      diagnostics: [oneComponent.expectedDiagnostic],
+    });
   });
 
   it('rejects reusable invalid extension envelopes with exact bounded diagnostics', () => {

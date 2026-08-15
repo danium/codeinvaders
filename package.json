@@ -16,9 +16,11 @@
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "vitest run --config vitest.config.mjs",
+    "protocol:docs:check": "pnpm --filter @codeinvaders/protocol build && node scripts/check-protocol-compatibility-docs.mjs",
+    "protocol:docs:generate": "pnpm --filter @codeinvaders/protocol build && node scripts/check-protocol-compatibility-docs.mjs --write",
     "third-party-notices:generate": "node scripts/generate-third-party-notices.mjs",
     "third-party-notices:check": "node scripts/generate-third-party-notices.mjs --check",
-    "check": "pnpm third-party-notices:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm third-party-notices:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && node scripts/check-protocol-compatibility-docs.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
