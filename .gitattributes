@@ -1,0 +1,43 @@
+# Repository-wide text and line-ending policy
+* text=auto eol=lf
+
+# Common source and configuration files are UTF-8 text
+*.c text eol=lf
+*.cc text eol=lf
+*.cpp text eol=lf
+*.css text eol=lf
+*.csv text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.jsx text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf
+*.ps1 text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Keep generated or binary assets out of text normalization
+*.7z binary
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.mp3 binary
+*.mp4 binary
+*.pdf binary
+*.png binary
+*.tar binary
+*.ttf binary
+*.webm binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+
+# Treat documentation and source as diffable text
+*.md diff
+*.ts diff
+*.tsx diff
+

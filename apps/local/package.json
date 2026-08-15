@@ -1,0 +1,19 @@
+{
+  "name": "@codeinvaders/local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --watch dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codeinvaders/core": "workspace:*",
+    "@codeinvaders/protocol": "workspace:*"
+  }
+}
