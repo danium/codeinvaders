@@ -25,9 +25,9 @@
 - [x] 2.1 Define the `io.github.danium.codeinvaders.aap` envelope, durable source identities, scope invariants, fidelity, finality, and core event discriminants in TypeScript.
 - [x] 2.2 Define JSON Schemas for every core event, including event-specific required scopes, byte and depth limits, and compatibility metadata.
 - [x] 2.3 Implement runtime protocol validation that returns bounded structured diagnostics and quarantines unsupported major versions.
-- [ ] 2.4 Define requested, quiescent, confirmed, failed, denied, cancelled, abandoned, correction, capability-change, and telemetry-gap semantics.
-- [ ] 2.5 Define complete revisioned task-plan reconciliation events and prohibit fuzzy identity transfer for terminal task state.
-- [ ] 2.6 Define the signal capability model covering evidence, coverage, finality, exclusions, and active-session changes.
+- [x] 2.4 Define requested, quiescent, confirmed, failed, denied, cancelled, abandoned, correction, capability-change, and telemetry-gap semantics.
+- [x] 2.5 Define complete revisioned task-plan reconciliation events and prohibit fuzzy identity transfer for terminal task state.
+- [x] 2.6 Define the signal capability model covering evidence, coverage, finality, exclusions, and active-session changes.
 - [ ] 2.7 Implement canonical event and state serialization with stable key and entity ordering.
 - [ ] 2.8 Add protocol fixtures for valid events, invalid scopes, unknown optional fields, extensions, incompatible versions, duplicates, and correlation ambiguity.
 - [ ] 2.9 Publish protocol compatibility and extension documentation generated or checked against the executable schemas.
