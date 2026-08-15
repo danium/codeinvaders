@@ -34,7 +34,7 @@
 
 ## 3. Adapter SDK, Privacy, and Ingress
 
-- [ ] 3.1 Implement keyed opaque ID derivation for installations, workspaces, repositories, streams, turns, agents, tasks, operations, and permissions without persisting raw identifiers.
+- [x] 3.1 Implement keyed opaque ID derivation for installations, workspaces, repositories, streams, turns, agents, tasks, operations, and permissions without persisting raw identifiers.
 - [ ] 3.2 Implement allowlist-only canonical payload builders and safe built-in tool categorization with generic defaults for unknown and MCP tools.
 - [ ] 3.3 Implement structured privacy-safe diagnostics with bounded codes, counts, durations, and no copied native text.
 - [ ] 3.4 Implement sanitized ingress records, stable retry event identifiers, per-record size limits, and validation before IPC or spool writes.
