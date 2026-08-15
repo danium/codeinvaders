@@ -1,6 +1,34 @@
 export type AdapterBoundary = 'sanitized-ingress' | 'capability-profile';
 
 export {
+  adapterBoundaryDiagnosticCodes,
+  adapterDiagnosticCodes,
+  adapterDiagnosticFields,
+  adapterDiagnosticSeverities,
+  buildAdapterDiagnostic,
+  createAdapterDiagnostic,
+  isAdapterBoundaryDiagnosticCode,
+  isAdapterDiagnosticCode,
+  isProtocolDiagnosticCode,
+  MAX_DIAGNOSTIC_COUNT,
+  MAX_DIAGNOSTIC_DURATION_MS,
+  MAX_DIAGNOSTIC_INPUT_WORK,
+  normalizeAdapterDiagnostic,
+  protocolDiagnosticFields,
+} from './diagnostics.js';
+export type {
+  AdapterBoundaryDiagnosticCode,
+  AdapterDiagnostic,
+  AdapterDiagnosticBoundary,
+  AdapterDiagnosticCode,
+  AdapterDiagnosticField,
+  AdapterDiagnosticInput,
+  AdapterDiagnosticRecord,
+  AdapterDiagnosticSeverity,
+  ProtocolDiagnosticField,
+} from './diagnostics.js';
+
+export {
   categorizeBuiltinTool,
   categorizeBuiltInTool,
   categorizeTool,

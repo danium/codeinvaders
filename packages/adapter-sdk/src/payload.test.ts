@@ -443,6 +443,15 @@ describe('allowlist-only canonical payload builders', () => {
     const originalFreeze = Object.freeze;
     const originalSetPrototypeOf = Object.setPrototypeOf;
     const cleanPayload = buildToolStartedPayload({ name: 'shell' });
+    const observations: Array<{
+      prototype: object | null;
+      frozen: boolean;
+      json: string | undefined;
+      setResult: boolean;
+      hasInjected: boolean;
+    }> = [];
+    let fallbackName: unknown;
+    let outputCount: number | undefined;
 
     try {
       Object.defineProperty(Object.prototype, 'toJSON', {
@@ -492,15 +501,18 @@ describe('allowlist-only canonical payload builders', () => {
         buildTurnQuiescentPayload({}),
         buildWorkspaceDiscoveredPayload({}),
       ];
+      outputCount = outputs.length;
 
       for (const output of outputs) {
-        expect(Object.getPrototypeOf(output)).toBeNull();
-        expect(Object.isFrozen(output)).toBe(true);
-        expect(JSON.stringify(output)).not.toContain(canary);
-        expect(Reflect.set(output, 'injected', canary)).toBe(false);
-        expect(Object.prototype.hasOwnProperty.call(output, 'injected')).toBe(false);
+        observations[observations.length] = {
+          prototype: Object.getPrototypeOf(output),
+          frozen: Object.isFrozen(output),
+          json: JSON.stringify(output),
+          setResult: Reflect.set(output, 'injected', canary),
+          hasInjected: Object.prototype.hasOwnProperty.call(output, 'injected'),
+        };
       }
-      expect(buildToolStartedPayload({}).name).toBe('other');
+      fallbackName = buildToolStartedPayload({}).name;
     } finally {
       Object.freeze = originalFreeze;
       Object.setPrototypeOf = originalSetPrototypeOf;
@@ -509,6 +521,15 @@ describe('allowlist-only canonical payload builders', () => {
       if (originalName === undefined) delete (Object.prototype as { name?: unknown }).name;
       else Object.defineProperty(Object.prototype, 'name', originalName);
     }
+    expect(outputCount).toBe(observations.length);
+    for (const observation of observations) {
+      expect(observation.prototype).toBeNull();
+      expect(observation.frozen).toBe(true);
+      expect(observation.json).not.toContain(canary);
+      expect(observation.setResult).toBe(false);
+      expect(observation.hasInjected).toBe(false);
+    }
+    expect(fallbackName).toBe('other');
   });
 
   it('bounds agent depth to the executable protocol limit', () => {

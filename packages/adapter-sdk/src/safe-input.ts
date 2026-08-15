@@ -1,4 +1,5 @@
 import { isProxy as nodeIsProxy } from 'node:util/types';
+import { appendArrayValue, harden } from './immutable.js';
 
 /**
  * Small, non-coercing snapshots for hostile adapter input.
@@ -11,7 +12,7 @@ import { isProxy as nodeIsProxy } from 'node:util/types';
 
 const getPrototypeOf = Object.getPrototypeOf;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-const freeze = Object.freeze;
+const freeze = harden;
 const create = Object.create;
 const defineProperty = Object.defineProperty;
 const preventExtensions = Object.preventExtensions;
@@ -71,10 +72,13 @@ export function snapshotAllowedProperties(
       if (descriptor === undefined) continue;
       const valueDescriptor = getOwnPropertyDescriptor(descriptor, 'value');
       if (valueDescriptor === undefined) continue;
-      snapshot[snapshot.length] = makeImmutableRecord<SafePropertySnapshot>([
-        ['key', key],
-        ['value', valueDescriptor.value],
-      ]);
+      appendArrayValue(
+        snapshot,
+        makeImmutableRecord<SafePropertySnapshot>([
+          ['key', key],
+          ['value', valueDescriptor.value],
+        ]),
+      );
     }
   } catch {
     return freeze([]);

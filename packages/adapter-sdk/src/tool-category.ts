@@ -4,8 +4,9 @@ import {
   snapshotAllowedProperties,
   type SafePropertySnapshot,
 } from './safe-input.js';
+import { harden } from './immutable.js';
 
-const freeze = Object.freeze;
+const freeze = harden;
 
 /** The closed category vocabulary used by canonical tool payloads. */
 export const toolCategories = freeze([

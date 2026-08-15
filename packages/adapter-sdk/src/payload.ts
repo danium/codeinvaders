@@ -17,8 +17,9 @@ import {
   snapshotAllowedProperties,
   type SafePropertySnapshot,
 } from './safe-input.js';
+import { appendArrayValue, harden } from './immutable.js';
 
-const freeze = Object.freeze;
+const freeze = harden;
 const isSafeInteger = Number.isSafeInteger;
 
 const PAYLOAD_PROPERTY_KEYS = freeze([
@@ -316,7 +317,7 @@ export function buildToolPayload(
         ['category', category],
       ];
       if (parallelGroupId !== undefined)
-        entries[entries.length] = ['parallelGroupId', parallelGroupId];
+        appendArrayValue(entries, ['parallelGroupId', parallelGroupId]);
       return makeImmutableRecord<CanonicalToolRequestedPayload>(entries);
     }
     case 'started': {
@@ -325,7 +326,7 @@ export function buildToolPayload(
         ['category', category],
       ];
       if (parallelGroupId !== undefined)
-        entries[entries.length] = ['parallelGroupId', parallelGroupId];
+        appendArrayValue(entries, ['parallelGroupId', parallelGroupId]);
       return makeImmutableRecord<CanonicalToolStartedPayload>(entries);
     }
     case 'completed': {
@@ -334,12 +335,12 @@ export function buildToolPayload(
         ['category', category],
       ];
       const durationMs = safeInteger(readFirstSnapshot(snapshot, ['durationMs', 'duration_ms']));
-      if (durationMs !== undefined) entries[entries.length] = ['durationMs', durationMs];
+      if (durationMs !== undefined) appendArrayValue(entries, ['durationMs', durationMs]);
       const resultClass = optionalEnum(
         readFirstSnapshot(snapshot, ['resultClass', 'result_class']),
         ['success', 'partial', 'unknown'] as const,
       );
-      if (resultClass !== undefined) entries[entries.length] = ['resultClass', resultClass];
+      if (resultClass !== undefined) appendArrayValue(entries, ['resultClass', resultClass]);
       return makeImmutableRecord<CanonicalToolCompletedPayload>(entries);
     }
     case 'failed': {
@@ -356,7 +357,7 @@ export function buildToolPayload(
         ],
       ];
       const durationMs = safeInteger(readFirstSnapshot(snapshot, ['durationMs', 'duration_ms']));
-      if (durationMs !== undefined) entries[entries.length] = ['durationMs', durationMs];
+      if (durationMs !== undefined) appendArrayValue(entries, ['durationMs', durationMs]);
       return makeImmutableRecord<CanonicalToolFailedPayload>(entries);
     }
   }
@@ -411,7 +412,7 @@ export function buildPermissionPayload(
     'destructive',
     'unknown',
   ] as const);
-  if (riskClass !== undefined) entries[entries.length] = ['riskClass', riskClass];
+  if (riskClass !== undefined) appendArrayValue(entries, ['riskClass', riskClass]);
   return makeImmutableRecord<CanonicalPermissionRequestedPayload>(entries);
 }
 
@@ -432,7 +433,7 @@ export function buildTaskCreatedPayload(input: unknown): CanonicalTaskCreatedPay
     ['fallback', safeBoolean(readFirstSnapshot(snapshot, ['fallback']), false)],
   ];
   const ordinal = safeInteger(readFirstSnapshot(snapshot, ['ordinal']));
-  if (ordinal !== undefined) entries[entries.length] = ['ordinal', ordinal];
+  if (ordinal !== undefined) appendArrayValue(entries, ['ordinal', ordinal]);
   return makeImmutableRecord<CanonicalTaskCreatedPayload>(entries);
 }
 
@@ -440,9 +441,9 @@ export function buildTaskUpdatedPayload(input: unknown): CanonicalTaskUpdatedPay
   const snapshot = snapshotPayload(input);
   const entries: [string, unknown][] = [];
   const status = optionalEnum(readFirstSnapshot(snapshot, ['status']), TASK_STATUSES);
-  if (status !== undefined) entries[entries.length] = ['status', status];
+  if (status !== undefined) appendArrayValue(entries, ['status', status]);
   const ordinal = safeInteger(readFirstSnapshot(snapshot, ['ordinal']));
-  if (ordinal !== undefined) entries[entries.length] = ['ordinal', ordinal];
+  if (ordinal !== undefined) appendArrayValue(entries, ['ordinal', ordinal]);
   return makeImmutableRecord<CanonicalTaskUpdatedPayload>(entries);
 }
 
@@ -563,7 +564,7 @@ export function buildAgentStateChangedPayload(input: unknown): CanonicalAgentSta
   if (to === undefined) throw new PayloadBuilderError('invalid-agent-state');
   const entries: [string, unknown][] = [['to', to]];
   const from = optionalEnum(readFirstSnapshot(snapshot, ['from']), AGENT_STATES);
-  if (from !== undefined) entries[entries.length] = ['from', from];
+  if (from !== undefined) appendArrayValue(entries, ['from', from]);
   const reason = optionalEnum(readFirstSnapshot(snapshot, ['reason']), [
     'tool',
     'permission',
@@ -572,7 +573,7 @@ export function buildAgentStateChangedPayload(input: unknown): CanonicalAgentSta
     'timeout',
     'unknown',
   ] as const);
-  if (reason !== undefined) entries[entries.length] = ['reason', reason];
+  if (reason !== undefined) appendArrayValue(entries, ['reason', reason]);
   return makeImmutableRecord<CanonicalAgentStateChangedPayload>(entries);
 }
 

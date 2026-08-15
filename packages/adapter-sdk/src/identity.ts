@@ -8,6 +8,8 @@
  * those components unambiguous without persisting either value.
  */
 
+import { appendArrayValue, harden, writeArrayValue } from './immutable.js';
+
 const OPAQUE_ID_DOMAIN = 'io.github.danium.codeinvaders.opaque-id';
 const OPAQUE_ID_FORMAT = 'oid1_';
 const HMAC_HASH = 'SHA-256';
@@ -21,7 +23,8 @@ const typedArraySet = Uint8Array.prototype.set;
 const isArrayBufferView = ArrayBuffer.isView;
 const isArray = Array.isArray;
 const isInteger = Number.isInteger;
-const freeze = Object.freeze;
+
+const freeze = harden;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -221,7 +224,7 @@ function canonicalizeInput(input: OpaqueIdInput): readonly Bytes[] {
     if (length <= MAX_OPAQUE_ID_COMPONENTS) {
       const snapshot = new Array<unknown>(length);
       for (let index = 0; index < length; index += 1) {
-        snapshot[index] = input[index];
+        writeArrayValue(snapshot, index, input[index]);
       }
       values = snapshot;
     }
@@ -239,7 +242,7 @@ function canonicalizeInput(input: OpaqueIdInput): readonly Bytes[] {
     const component = canonicalizeComponent(values[index]);
     totalBytes += component.bytes.byteLength;
     if (totalBytes > MAX_OPAQUE_ID_INPUT_BYTES) throw opaqueError('identifier-too-large');
-    components[components.length] = component.bytes;
+    appendArrayValue(components, component.bytes);
   }
   return components;
 }
