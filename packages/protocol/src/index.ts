@@ -11,6 +11,20 @@ export const MAX_EVENT_BYTES = 32_768;
 export const MAX_JSON_DEPTH = 12;
 export const MAX_EXTENSION_BYTES = 4_096;
 
+/** Resource limits for the generic canonical state/text/UTF-8 APIs. */
+export const MAX_CANONICAL_STATE_DEPTH = 64;
+export const MAX_CANONICAL_STATE_NODES = 100_000;
+export const MAX_CANONICAL_STATE_CONTAINERS = 25_000;
+export const MAX_CANONICAL_STATE_BYTES = 1_048_576;
+export const MAX_CANONICAL_ARRAY_LENGTH = 100_000;
+export const MAX_CANONICAL_OBJECT_KEYS = 10_000;
+export const MAX_CANONICAL_STRING_CODE_UNITS = 16_384;
+export const MAX_CANONICAL_TOTAL_STRING_CODE_UNITS = 1_000_000;
+export const MAX_ENTITY_COLLECTIONS = 128;
+export const MAX_ENTITY_PATH_SEGMENTS = 64;
+export const MAX_ENTITY_PATH_SEGMENT_CODE_UNITS = 128;
+export const MAX_ENTITY_ID_CODE_UNITS = 256;
+
 export type Fidelity = 'observed' | 'derived' | 'synthetic';
 export type Finality = 'provisional' | 'confirmed';
 export type Support = 'none' | 'derived' | 'observed';
@@ -24,16 +38,23 @@ export type SanitizedToken = string & { readonly __codeinvadersSanitizedToken: u
 
 /** Brands canonical text only after the same bounded checks used by the protocol schema. */
 export function opaqueText(value: string, maxLength = 256): OpaqueText {
-  const codePointLength = [...value].length;
-  if (
-    codePointLength < 1 ||
-    codePointLength > Math.min(maxLength, 2048) ||
-    [...value].some((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || code === 0x7f;
-    })
-  )
+  let codePointLength = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const first = value.charCodeAt(index);
+    if (first >= 0xd800 && first <= 0xdbff && index + 1 < value.length) {
+      const second = value.charCodeAt(index + 1);
+      if (second >= 0xdc00 && second <= 0xdfff) index += 1;
+    }
+    codePointLength += 1;
+  }
+  if (codePointLength < 1 || codePointLength > Math.min(maxLength, 2048)) {
     throw new Error('invalid opaque text');
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.codePointAt(index) ?? 0;
+    if (code <= 0x1f || code === 0x7f) throw new Error('invalid opaque text');
+    if (code > 0xffff) index += 1;
+  }
   return value as OpaqueText;
 }
 
@@ -1101,31 +1122,49 @@ function hasOwn(value: Record<string, unknown>, property: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, property);
 }
 
-const validPlanStatuses = new Set([
-  'pending',
-  'in_progress',
-  'blocked',
-  'completed',
-  'failed',
-  'denied',
-  'cancelled',
-  'abandoned',
-  'unknown',
-]);
-const validPlanIdentityBases = new Set([
-  'stable-native-id',
-  'exact-normalized-identity',
-  'exact-ordinal-continuity',
-  'new-unmatched',
-]);
-const terminalPlanStatuses = new Set([
-  'completed',
-  'failed',
-  'denied',
-  'cancelled',
-  'abandoned',
-  'unknown',
-]);
+function defineOwnArraySlot<T>(array: T[], index: number, value: T): void {
+  Object.defineProperty(array, String(index), {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value,
+  });
+}
+
+function readOwnArraySlot<T>(array: readonly T[], index: number): T | undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(array, String(index));
+  return descriptor !== undefined && 'value' in descriptor ? (descriptor.value as T) : undefined;
+}
+
+function containsString(values: readonly string[], needle: string): boolean {
+  for (let index = 0; index < values.length; index += 1) {
+    if (readOwnArraySlot(values, index) === needle) return true;
+  }
+  return false;
+}
+
+const validPlanStatuses = new Set<string>();
+validPlanStatuses.add('pending');
+validPlanStatuses.add('in_progress');
+validPlanStatuses.add('blocked');
+validPlanStatuses.add('completed');
+validPlanStatuses.add('failed');
+validPlanStatuses.add('denied');
+validPlanStatuses.add('cancelled');
+validPlanStatuses.add('abandoned');
+validPlanStatuses.add('unknown');
+const validPlanIdentityBases = new Set<string>();
+validPlanIdentityBases.add('stable-native-id');
+validPlanIdentityBases.add('exact-normalized-identity');
+validPlanIdentityBases.add('exact-ordinal-continuity');
+validPlanIdentityBases.add('new-unmatched');
+const terminalPlanStatuses = new Set<string>();
+terminalPlanStatuses.add('completed');
+terminalPlanStatuses.add('failed');
+terminalPlanStatuses.add('denied');
+terminalPlanStatuses.add('cancelled');
+terminalPlanStatuses.add('abandoned');
+terminalPlanStatuses.add('unknown');
 const protocolIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function isSafeNonNegativeInteger(value: unknown): value is number {
@@ -1179,7 +1218,8 @@ function validatePlanItemsKeyword(schema: boolean, value: unknown): boolean {
     ordinal: number;
     identityBasis: PlanTask['identityBasis'];
   }> = [];
-  for (const item of items) {
+  for (let index = 0; index < items.length; index += 1) {
+    const item = readOwnArraySlot(items, index);
     if (
       !isKeywordRecord(item) ||
       typeof item.taskId !== 'string' ||
@@ -1191,7 +1231,7 @@ function validatePlanItemsKeyword(schema: boolean, value: unknown): boolean {
       !validPlanIdentityBases.has(item.identityBasis)
     )
       return true;
-    parsedItems.push({
+    defineOwnArraySlot(parsedItems, parsedItems.length, {
       taskId: item.taskId,
       status: item.status,
       ordinal: item.ordinal,
@@ -1200,7 +1240,9 @@ function validatePlanItemsKeyword(schema: boolean, value: unknown): boolean {
   }
 
   const ids = new Set<string>();
-  for (const [index, item] of parsedItems.entries()) {
+  for (let index = 0; index < parsedItems.length; index += 1) {
+    const item = readOwnArraySlot(parsedItems, index);
+    if (!item) return true;
     if (
       ids.has(item.taskId) ||
       item.ordinal !== PLAN_ORDINAL_BASE + index ||
@@ -1315,34 +1357,62 @@ const functionalKeywords: readonly KeywordDefinition[] = [
   planItemsKeyword,
   noTimeoutSuccessKeyword,
 ];
-const allProtocolKeywords = [...functionalKeywords, ...annotationKeywords];
-const functionalKeywordNames = new Set(
-  functionalKeywords.flatMap((definition) =>
-    typeof definition.keyword === 'string' ? [definition.keyword] : definition.keyword,
-  ),
+const allProtocolKeywords: KeywordDefinition[] = new Array(
+  functionalKeywords.length + annotationKeywords.length,
 );
-
-/** Register executable and annotation keywords required by every exported protocol schema. */
-export function registerProtocolSchemaKeywords(instance: ProtocolSchemaCompiler): void {
-  for (const definition of allProtocolKeywords) {
-    const names =
-      typeof definition.keyword === 'string' ? [definition.keyword] : definition.keyword;
-    if (names.some((name) => !instance.getKeyword(name))) instance.addKeyword(definition);
+for (let index = 0; index < functionalKeywords.length; index += 1) {
+  const definition = readOwnArraySlot(functionalKeywords, index);
+  if (definition === undefined) throw new Error('invalid protocol keyword registry');
+  defineOwnArraySlot(allProtocolKeywords, index, definition);
+}
+for (let index = 0; index < annotationKeywords.length; index += 1) {
+  const definition = readOwnArraySlot(annotationKeywords, index);
+  if (definition === undefined) throw new Error('invalid protocol keyword registry');
+  defineOwnArraySlot(allProtocolKeywords, functionalKeywords.length + index, definition);
+}
+const functionalKeywordNames = new Set<string>();
+for (let index = 0; index < functionalKeywords.length; index += 1) {
+  const definition = readOwnArraySlot(functionalKeywords, index);
+  if (definition === undefined) throw new Error('invalid protocol keyword registry');
+  if (typeof definition.keyword === 'string') functionalKeywordNames.add(definition.keyword);
+  else {
+    for (let nameIndex = 0; nameIndex < definition.keyword.length; nameIndex += 1) {
+      const name = readOwnArraySlot(definition.keyword, nameIndex);
+      if (name === undefined) throw new Error('invalid protocol keyword registry');
+      functionalKeywordNames.add(name);
+    }
   }
 }
 
-const semanticRequired = new Set<CoreEventType>([
-  'source.capability.changed',
-  'telemetry.gap',
-  'turn.quiescent',
-  'task.completion.requested',
-  'task.completed',
-  'task.failed',
-  'task.denied',
-  'task.cancelled',
-  'task.abandoned',
-  'task.corrected',
-]);
+/** Register executable and annotation keywords required by every exported protocol schema. */
+export function registerProtocolSchemaKeywords(instance: ProtocolSchemaCompiler): void {
+  for (let index = 0; index < allProtocolKeywords.length; index += 1) {
+    const definition = readOwnArraySlot(allProtocolKeywords, index);
+    if (definition === undefined) continue;
+    if (typeof definition.keyword === 'string') {
+      if (!instance.getKeyword(definition.keyword)) instance.addKeyword(definition);
+      continue;
+    }
+    let missing = false;
+    for (let nameIndex = 0; nameIndex < definition.keyword.length; nameIndex += 1) {
+      const name = readOwnArraySlot(definition.keyword, nameIndex);
+      if (name !== undefined && !instance.getKeyword(name)) missing = true;
+    }
+    if (missing) instance.addKeyword(definition);
+  }
+}
+
+const semanticRequired = new Set<CoreEventType>();
+semanticRequired.add('source.capability.changed');
+semanticRequired.add('telemetry.gap');
+semanticRequired.add('turn.quiescent');
+semanticRequired.add('task.completion.requested');
+semanticRequired.add('task.completed');
+semanticRequired.add('task.failed');
+semanticRequired.add('task.denied');
+semanticRequired.add('task.cancelled');
+semanticRequired.add('task.abandoned');
+semanticRequired.add('task.corrected');
 const terminalOutcomeByStatus = {
   completed: 'success',
   failed: 'failure',
@@ -1495,6 +1565,86 @@ const semanticRules: Partial<Record<CoreEventType, readonly object[]>> = {
     },
   ],
 };
+const terminalTaskStatuses: readonly TerminalTaskStatus[] = [
+  'completed',
+  'failed',
+  'denied',
+  'cancelled',
+  'abandoned',
+  'unknown',
+];
+const taskCorrectedOneOfRules: object[] = new Array(terminalTaskStatuses.length + 1);
+defineOwnArraySlot(taskCorrectedOneOfRules, 0, {
+  type: 'object',
+  properties: {
+    finality: { const: 'confirmed' },
+    data: {
+      type: 'object',
+      properties: {
+        correction: { const: 'reopen' },
+        status: enumSchema(['pending', 'in_progress', 'blocked']),
+        correctedEventId: {},
+        correctedEntityId: {},
+      },
+      required: ['correction', 'correctedEventId', 'correctedEntityId', 'status'],
+      not: {
+        type: 'object',
+        properties: { resultingOutcome: {} },
+        required: ['resultingOutcome'],
+      },
+    },
+    semantic: {
+      type: 'object',
+      required: ['kind', 'terminal', 'correctionOfEventId', 'correctionOfEntityId'],
+      properties: {
+        kind: { const: 'correction' },
+        terminal: { const: false },
+        correctionOfEventId: {},
+        correctionOfEntityId: {},
+      },
+    },
+  },
+  required: ['finality', 'data', 'semantic'],
+});
+for (let index = 0; index < terminalTaskStatuses.length; index += 1) {
+  const status = readOwnArraySlot(terminalTaskStatuses, index);
+  if (status === undefined) throw new Error('invalid terminal task status registry');
+  const outcome = terminalOutcomeByStatus[status];
+  defineOwnArraySlot(taskCorrectedOneOfRules, index + 1, {
+    type: 'object',
+    properties: {
+      finality: { const: 'confirmed' },
+      data: {
+        type: 'object',
+        properties: {
+          correction: { const: 'replace-outcome' },
+          status: { const: status },
+          resultingOutcome: { const: outcome },
+          correctedEventId: {},
+          correctedEntityId: {},
+        },
+        required: [
+          'correction',
+          'correctedEventId',
+          'correctedEntityId',
+          'status',
+          'resultingOutcome',
+        ],
+      },
+      semantic: {
+        type: 'object',
+        required: ['kind', 'terminal', 'outcome'],
+        properties: {
+          kind: { const: 'outcome' },
+          terminal: { const: true },
+          outcome: { const: outcome },
+        },
+      },
+    },
+    required: ['finality', 'data', 'semantic'],
+  });
+}
+
 const dataRules: Partial<Record<CoreEventType, readonly object[]>> = {
   'source.connected': [
     {
@@ -1515,75 +1665,7 @@ const dataRules: Partial<Record<CoreEventType, readonly object[]>> = {
   ],
   'task.corrected': [
     {
-      oneOf: [
-        {
-          type: 'object',
-          properties: {
-            finality: { const: 'confirmed' },
-            data: {
-              type: 'object',
-              properties: {
-                correction: { const: 'reopen' },
-                status: enumSchema(['pending', 'in_progress', 'blocked']),
-                correctedEventId: {},
-                correctedEntityId: {},
-              },
-              required: ['correction', 'correctedEventId', 'correctedEntityId', 'status'],
-              not: {
-                type: 'object',
-                properties: { resultingOutcome: {} },
-                required: ['resultingOutcome'],
-              },
-            },
-            semantic: {
-              type: 'object',
-              required: ['kind', 'terminal', 'correctionOfEventId', 'correctionOfEntityId'],
-              properties: {
-                kind: { const: 'correction' },
-                terminal: { const: false },
-                correctionOfEventId: {},
-                correctionOfEntityId: {},
-              },
-            },
-          },
-          required: ['finality', 'data', 'semantic'],
-        },
-        ...(Object.entries(terminalOutcomeByStatus) as [TerminalTaskStatus, TaskOutcome][]).map(
-          ([status, outcome]) => ({
-            type: 'object',
-            properties: {
-              finality: { const: 'confirmed' },
-              data: {
-                type: 'object',
-                properties: {
-                  correction: { const: 'replace-outcome' },
-                  status: { const: status },
-                  resultingOutcome: { const: outcome },
-                  correctedEventId: {},
-                  correctedEntityId: {},
-                },
-                required: [
-                  'correction',
-                  'correctedEventId',
-                  'correctedEntityId',
-                  'status',
-                  'resultingOutcome',
-                ],
-              },
-              semantic: {
-                type: 'object',
-                required: ['kind', 'terminal', 'outcome'],
-                properties: {
-                  kind: { const: 'outcome' },
-                  terminal: { const: true },
-                  outcome: { const: outcome },
-                },
-              },
-            },
-            required: ['finality', 'data', 'semantic'],
-          }),
-        ),
-      ],
+      oneOf: taskCorrectedOneOfRules,
     },
   ],
   'task.plan.reconciled': [
@@ -1616,26 +1698,73 @@ const dataRules: Partial<Record<CoreEventType, readonly object[]>> = {
     },
   ],
 };
+
+function requiredEnvelopeProperties(type: CoreEventType): string[] {
+  const required = new Array<string>(12 + (semanticRequired.has(type) ? 1 : 0));
+  defineOwnArraySlot(required, 0, 'spec');
+  defineOwnArraySlot(required, 1, 'version');
+  defineOwnArraySlot(required, 2, 'eventId');
+  defineOwnArraySlot(required, 3, 'type');
+  defineOwnArraySlot(required, 4, 'occurredAt');
+  defineOwnArraySlot(required, 5, 'observedAt');
+  defineOwnArraySlot(required, 6, 'sequence');
+  defineOwnArraySlot(required, 7, 'source');
+  defineOwnArraySlot(required, 8, 'scope');
+  defineOwnArraySlot(required, 9, 'fidelity');
+  defineOwnArraySlot(required, 10, 'finality');
+  defineOwnArraySlot(required, 11, 'data');
+  if (semanticRequired.has(type)) {
+    defineOwnArraySlot(required, 12, 'semantic');
+  }
+  return required;
+}
+
+function requiredScopeProperties(type: CoreEventType): string[] {
+  const required = new Array<string>(1 + scopeRules[type].length);
+  defineOwnArraySlot(required, 0, 'workspaceId');
+  let length = 1;
+  for (let index = 0; index < scopeRules[type].length; index += 1) {
+    const property = readOwnArraySlot(scopeRules[type], index);
+    if (property === undefined) throw new Error('invalid scope registry');
+    if (!containsString(required, property)) {
+      defineOwnArraySlot(required, length, property);
+      length += 1;
+    }
+  }
+  required.length = length;
+  return required;
+}
+
+function combinedSchemaRules(
+  semantic: readonly object[] | undefined,
+  data: readonly object[] | undefined,
+): readonly object[] | undefined {
+  if (semantic === undefined && data === undefined) return undefined;
+  const semanticLength = semantic?.length ?? 0;
+  const dataLength = data?.length ?? 0;
+  const combined = new Array<object>(semanticLength + dataLength);
+  let outputIndex = 0;
+  for (let index = 0; index < semanticLength; index += 1) {
+    const rule = readOwnArraySlot(semantic as readonly object[], index);
+    if (rule === undefined) throw new Error('invalid semantic rule registry');
+    defineOwnArraySlot(combined, outputIndex, rule);
+    outputIndex += 1;
+  }
+  for (let index = 0; index < dataLength; index += 1) {
+    const rule = readOwnArraySlot(data as readonly object[], index);
+    if (rule === undefined) throw new Error('invalid data rule registry');
+    defineOwnArraySlot(combined, outputIndex, rule);
+    outputIndex += 1;
+  }
+  return combined;
+}
+
 const baseSchema = (type: CoreEventType) => ({
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: `${protocolId}/events/${type}`,
   type: 'object',
   additionalProperties: true,
-  required: [
-    'spec',
-    'version',
-    'eventId',
-    'type',
-    'occurredAt',
-    'observedAt',
-    'sequence',
-    'source',
-    'scope',
-    'fidelity',
-    'finality',
-    'data',
-    ...(semanticRequired.has(type) ? ['semantic'] : []),
-  ],
+  required: requiredEnvelopeProperties(type),
   properties: {
     spec: { const: protocolId },
     version: { type: 'string', pattern: semverPattern },
@@ -1665,7 +1794,7 @@ const baseSchema = (type: CoreEventType) => ({
     scope: {
       type: 'object',
       additionalProperties: true,
-      required: [...new Set(['workspaceId', 'sessionId', ...scopeRules[type]])],
+      required: requiredScopeProperties(type),
       properties: {
         workspaceId: idSchema,
         repoId: idSchema,
@@ -1729,9 +1858,9 @@ const baseSchema = (type: CoreEventType) => ({
         : {}),
     },
   },
-  ...(semanticRules[type] || dataRules[type]
-    ? { allOf: [...(semanticRules[type] ?? []), ...(dataRules[type] ?? [])] }
-    : {}),
+  ...(combinedSchemaRules(semanticRules[type], dataRules[type]) === undefined
+    ? {}
+    : { allOf: combinedSchemaRules(semanticRules[type], dataRules[type]) }),
   [protocolSchemaKeywordNames.noTimeoutSuccess]: true,
   ...(type === 'source.connected'
     ? { [protocolSchemaKeywordNames.capabilityCoherence]: 'connected' }
@@ -1752,9 +1881,20 @@ const baseSchema = (type: CoreEventType) => ({
   [protocolSchemaKeywordNames.requiredScope]: scopeRules[type],
 });
 
-export const coreEventSchemas = Object.fromEntries(
-  coreTypes.map((type) => [type, baseSchema(type)]),
-) as unknown as Readonly<Record<CoreEventType, Record<string, unknown>>>;
+const coreEventSchemaRecord = detachedObject<Record<CoreEventType, Record<string, unknown>>>();
+for (let index = 0; index < coreTypes.length; index += 1) {
+  const type = readOwnArraySlot(coreTypes, index);
+  if (type === undefined) throw new Error('invalid core event registry');
+  Object.defineProperty(coreEventSchemaRecord, type, {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: baseSchema(type),
+  });
+}
+export const coreEventSchemas = coreEventSchemaRecord as Readonly<
+  Record<CoreEventType, Record<string, unknown>>
+>;
 const extensionPattern =
   /^x\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 
@@ -1857,28 +1997,51 @@ export { extensionEventSchema };
 
 type AjvLike = ProtocolSchemaCompiler & { compile: (schema: object) => ValidateFunction };
 const AjvConstructor = Ajv2020Module.default as unknown as new (options: object) => AjvLike;
-const ajv = new AjvConstructor({ strict: false, allErrors: false, validateFormats: true });
 const addFormats = addFormatsModule.default as unknown as (instance: AjvLike) => void;
-addFormats(ajv);
-registerProtocolSchemaKeywords(ajv);
-const validators = new Map<CoreEventType, ValidateFunction>(
-  coreTypes.map((type) => [type, ajv.compile(coreEventSchemas[type])]),
-);
-const extensionValidator = ajv.compile(extensionEventSchema);
+interface AjvRuntime {
+  readonly ajv: AjvLike;
+  readonly validators: Map<CoreEventType, ValidateFunction>;
+  readonly extensionValidator: ValidateFunction;
+}
+let ajvRuntime: AjvRuntime | undefined;
+
+function getAjvRuntime(): AjvRuntime {
+  if (ajvRuntime !== undefined) return ajvRuntime;
+  const ajv = new AjvConstructor({ strict: false, allErrors: false, validateFormats: true });
+  addFormats(ajv);
+  registerProtocolSchemaKeywords(ajv);
+  const validators = new Map<CoreEventType, ValidateFunction>();
+  for (let index = 0; index < coreTypes.length; index += 1) {
+    const type = readOwnArraySlot(coreTypes, index);
+    if (type === undefined) throw new Error('invalid core event registry');
+    validators.set(type, ajv.compile(coreEventSchemas[type]));
+  }
+  ajvRuntime = { ajv, validators, extensionValidator: ajv.compile(extensionEventSchema) };
+  return ajvRuntime;
+}
+
 const diagnostic = (
   code: ProtocolDiagnostic['code'],
   field?: ProtocolDiagnostic['field'],
   eventType?: CoreEventType,
   protocolMajor?: number,
-): ProtocolDiagnostic => ({
-  code,
-  severity: 'error',
-  ...(field ? { field } : {}),
-  ...(eventType ? { eventType } : {}),
-  ...(protocolMajor === undefined ? {} : { protocolMajor }),
-});
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+): ProtocolDiagnostic => {
+  const result = detachedObject<Record<string, unknown>>();
+  result.code = code;
+  result.severity = 'error';
+  if (field) result.field = field;
+  if (eventType) result.eventType = eventType;
+  if (protocolMajor !== undefined) result.protocolMajor = protocolMajor;
+  return result as unknown as ProtocolDiagnostic;
+};
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null) return false;
+  try {
+    return !Array.isArray(value);
+  } catch {
+    return false;
+  }
+};
 const semver = (value: unknown): value is string =>
   typeof value === 'string' && new RegExp(semverPattern).test(value);
 const safeMajor = (version: string): number | undefined => {
@@ -1886,26 +2049,511 @@ const safeMajor = (version: string): number | undefined => {
   return Number.isSafeInteger(major) && major >= 0 && major <= 9999 ? major : undefined;
 };
 
-function serializedBounds(value: unknown): { bytes?: number; depth?: number } | ProtocolDiagnostic {
+interface ValidationSnapshotContext {
+  readonly ancestors: WeakSet<object>;
+  nodes: number;
+  stringCodeUnits: number;
+}
+
+interface ValidationSnapshotSuccess {
+  readonly ok: true;
+  readonly value: unknown;
+}
+
+interface ValidationSnapshotFailure {
+  readonly ok: false;
+  readonly diagnostic: ProtocolDiagnostic;
+}
+
+type ValidationSnapshotResult = ValidationSnapshotSuccess | ValidationSnapshotFailure;
+
+function isValidationSnapshotFailure(value: object): value is ValidationSnapshotFailure {
+  return (
+    hasOwn(value as Record<string, unknown>, 'ok') &&
+    (value as Record<string, unknown>).ok === false
+  );
+}
+
+function validationFieldForPath(path: readonly string[]): ProtocolDiagnostic['field'] | undefined {
+  switch (readOwnArraySlot(path, 0)) {
+    case 'spec':
+      return 'spec';
+    case 'version':
+      return 'version';
+    case 'eventId':
+      return 'eventId';
+    case 'type':
+      return 'type';
+    case 'occurredAt':
+    case 'observedAt':
+      return 'timestamps';
+    case 'sequence':
+      return 'sequence';
+    case 'source':
+      return 'source';
+    case 'scope':
+      return 'scope';
+    case 'fidelity':
+      return 'fidelity';
+    case 'finality':
+      return 'finality';
+    case 'data':
+    case 'semantic':
+      return 'data';
+    case 'extension':
+      return 'extension';
+    default:
+      return undefined;
+  }
+}
+
+function snapshotInvalidValueCode(path: readonly string[]): ProtocolDiagnostic['code'] {
+  const first = readOwnArraySlot(path, 0);
+  if (first === 'scope') return 'invalid-scope';
+  if (first === 'data' || first === 'semantic') return 'invalid-data';
+  return 'invalid-envelope';
+}
+
+function snapshotFailure(
+  code: ProtocolDiagnostic['code'],
+  path: readonly string[],
+  field?: ProtocolDiagnostic['field'],
+): ValidationSnapshotFailure {
+  return {
+    ok: false,
+    diagnostic: diagnostic(code, field ?? validationFieldForPath(path)),
+  };
+}
+
+interface ValidationPrototypeSuccess {
+  readonly ok: true;
+  readonly prototype: object | null;
+}
+
+type ValidationPrototypeResult = ValidationPrototypeSuccess | ValidationSnapshotFailure;
+
+function safeSnapshotPrototype(value: object, path: readonly string[]): ValidationPrototypeResult {
+  try {
+    return { ok: true, prototype: Object.getPrototypeOf(value) };
+  } catch {
+    return snapshotFailure('invalid-envelope', path);
+  }
+}
+
+function safeSnapshotKeys(
+  value: object,
+  path: readonly string[],
+): readonly (string | symbol)[] | ValidationSnapshotFailure {
+  try {
+    return Reflect.ownKeys(value);
+  } catch {
+    return snapshotFailure('invalid-envelope', path);
+  }
+}
+
+function safeSnapshotDescriptor(
+  value: object,
+  key: string,
+  path: readonly string[],
+): PropertyDescriptor | undefined | ValidationSnapshotFailure {
+  try {
+    return Object.getOwnPropertyDescriptor(value, key);
+  } catch {
+    return snapshotFailure('invalid-envelope', path);
+  }
+}
+
+/** Detached objects never consult a potentially polluted global prototype. */
+function detachedObject<T extends object = Record<string, unknown>>(): T {
+  return Object.create(null) as T;
+}
+
+function detachedArray<T>(length: number): T[] {
+  return new Array<T>(length);
+}
+
+function appendPath<T>(path: readonly T[], part: T): T[] {
+  const output = new Array<T>(path.length + 1);
+  for (let index = 0; index < path.length; index += 1) {
+    const value = readOwnArraySlot(path, index);
+    if (value === undefined) throw new Error('invalid structural path');
+    defineOwnArraySlot(output, index, value);
+  }
+  defineOwnArraySlot(output, path.length, part);
+  return output;
+}
+
+function codePointLength(value: string): number {
+  let count = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const first = value.charCodeAt(index);
+    if (first >= 0xd800 && first <= 0xdbff && index + 1 < value.length) {
+      const second = value.charCodeAt(index + 1);
+      if (second >= 0xdc00 && second <= 0xdfff) index += 1;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+function snapshotValidationValue(
+  value: unknown,
+  path: readonly string[],
+  depth: number,
+  context: ValidationSnapshotContext,
+): ValidationSnapshotResult {
+  if (depth > MAX_JSON_DEPTH) return snapshotFailure('event-too-deep', path, 'depth');
+  context.nodes += 1;
+  if (context.nodes > MAX_CANONICAL_STATE_NODES)
+    return snapshotFailure('event-too-large', path, 'size');
+
+  if (value === null) return { ok: true, value: null };
+  if (typeof value === 'boolean') return { ok: true, value };
+  if (typeof value === 'string') {
+    if (value.length > MAX_CANONICAL_STRING_CODE_UNITS)
+      return snapshotFailure('event-too-large', path, 'size');
+    context.stringCodeUnits += value.length;
+    if (context.stringCodeUnits > MAX_CANONICAL_TOTAL_STRING_CODE_UNITS)
+      return snapshotFailure('event-too-large', path, 'size');
+    return { ok: true, value };
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+      ? { ok: true, value }
+      : snapshotFailure(snapshotInvalidValueCode(path), path);
+  }
+  if (typeof value !== 'object' || value === null)
+    return snapshotFailure(snapshotInvalidValueCode(path), path);
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    return snapshotFailure('invalid-envelope', path);
+  }
+  const prototypeResult = safeSnapshotPrototype(value, path);
+  if (!prototypeResult.ok) return prototypeResult;
+  const prototype = prototypeResult.prototype;
+  const expectedPrototype = isArray ? Array.prototype : Object.prototype;
+  if (prototype !== expectedPrototype && prototype !== null)
+    return snapshotFailure('invalid-envelope', path);
+  if (context.ancestors.has(value)) return snapshotFailure(snapshotInvalidValueCode(path), path);
+  context.ancestors.add(value);
+  try {
+    const keys = safeSnapshotKeys(value, path);
+    if (isValidationSnapshotFailure(keys)) return keys;
+    if (keys.length > MAX_CANONICAL_OBJECT_KEYS)
+      return snapshotFailure('event-too-large', path, 'size');
+
+    if (isArray) {
+      const lengthDescriptor = safeSnapshotDescriptor(value, 'length', path);
+      if (lengthDescriptor === undefined || isValidationSnapshotFailure(lengthDescriptor)) {
+        return lengthDescriptor === undefined
+          ? snapshotFailure(snapshotInvalidValueCode(path), path)
+          : lengthDescriptor;
+      }
+      if (
+        !hasOwn(lengthDescriptor as Record<string, unknown>, 'value') ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0 ||
+        lengthDescriptor.value > MAX_CANONICAL_ARRAY_LENGTH
+      )
+        return snapshotFailure('event-too-large', path, 'size');
+      const length = lengthDescriptor.value as number;
+      const output = detachedArray<unknown>(length);
+      const present = detachedArray<boolean>(length);
+      for (let index = 0; index < length; index += 1) defineOwnArraySlot(present, index, false);
+      let sawLength = false;
+      for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+        const key = readOwnArraySlot(keys, keyIndex);
+        if (typeof key !== 'string') return snapshotFailure(snapshotInvalidValueCode(path), path);
+        if (key === 'length') {
+          sawLength = true;
+          continue;
+        }
+        if (!isCanonicalArrayIndex(key))
+          return snapshotFailure(snapshotInvalidValueCode(path), path);
+        const index = Number(key);
+        if (index >= length || readOwnArraySlot(present, index) === true)
+          return snapshotFailure(snapshotInvalidValueCode(path), path);
+        const propertyPath = appendPath(path, key);
+        const descriptor = safeSnapshotDescriptor(value, key, propertyPath);
+        if (descriptor === undefined)
+          return snapshotFailure(snapshotInvalidValueCode(path), propertyPath);
+        if (isValidationSnapshotFailure(descriptor)) return descriptor;
+        if (
+          !hasOwn(descriptor as Record<string, unknown>, 'value') ||
+          descriptor.enumerable !== true
+        )
+          return snapshotFailure(snapshotInvalidValueCode(path), propertyPath);
+        const child = snapshotValidationValue(descriptor.value, propertyPath, depth + 1, context);
+        if (!child.ok) return child;
+        defineOwnArraySlot(output, index, child.value);
+        defineOwnArraySlot(present, index, true);
+      }
+      if (!sawLength) return snapshotFailure(snapshotInvalidValueCode(path), path);
+      for (let index = 0; index < length; index += 1)
+        if (readOwnArraySlot(present, index) !== true)
+          return snapshotFailure(snapshotInvalidValueCode(path), path);
+      try {
+        Object.freeze(output);
+      } catch {
+        return snapshotFailure('invalid-envelope', path);
+      }
+      return { ok: true, value: output };
+    }
+
+    const output = detachedObject<Record<string, unknown>>();
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+      const key = readOwnArraySlot(keys, keyIndex);
+      if (typeof key !== 'string') return snapshotFailure(snapshotInvalidValueCode(path), path);
+      if (key.length > MAX_CANONICAL_STRING_CODE_UNITS)
+        return snapshotFailure('event-too-large', path, 'size');
+      context.stringCodeUnits += key.length;
+      if (context.stringCodeUnits > MAX_CANONICAL_TOTAL_STRING_CODE_UNITS)
+        return snapshotFailure('event-too-large', path, 'size');
+      const propertyPath = appendPath(path, key);
+      const descriptor = safeSnapshotDescriptor(value, key, propertyPath);
+      if (descriptor === undefined)
+        return snapshotFailure(snapshotInvalidValueCode(propertyPath), propertyPath);
+      if (isValidationSnapshotFailure(descriptor)) return descriptor;
+      if (descriptor.enumerable !== true || !hasOwn(descriptor as Record<string, unknown>, 'value'))
+        return snapshotFailure(snapshotInvalidValueCode(propertyPath), propertyPath);
+      const child = snapshotValidationValue(descriptor.value, propertyPath, depth + 1, context);
+      if (!child.ok) return child;
+      try {
+        Object.defineProperty(output, key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: child.value,
+        });
+      } catch {
+        return snapshotFailure('invalid-envelope', path);
+      }
+    }
+    try {
+      Object.freeze(output);
+    } catch {
+      return snapshotFailure('invalid-envelope', path);
+    }
+    return { ok: true, value: output };
+  } finally {
+    context.ancestors.delete(value);
+  }
+}
+
+function createValidationSnapshot(input: unknown): ValidationSnapshotResult {
+  const snapshot = snapshotValidationValue(input, [], 0, {
+    ancestors: new WeakSet<object>(),
+    nodes: 0,
+    stringCodeUnits: 0,
+  });
+  if (!snapshot.ok) return snapshot;
+  if (snapshot.value === null || typeof snapshot.value !== 'object')
+    return snapshotFailure('invalid-envelope', []);
+  try {
+    if (Array.isArray(snapshot.value)) return snapshotFailure('invalid-envelope', []);
+  } catch {
+    return snapshotFailure('invalid-envelope', []);
+  }
+  return snapshot;
+}
+
+function serializedBounds(
+  value: unknown,
+  byteLimit = MAX_EVENT_BYTES,
+): { bytes?: number; depth?: number } | ProtocolDiagnostic {
   const seen = new WeakSet<object>();
   let maxDepth = 0;
-  const walk = (item: unknown, level: number): boolean => {
-    maxDepth = Math.max(maxDepth, level);
-    if (level > MAX_JSON_DEPTH) return false;
-    if (!item || typeof item !== 'object') return true;
-    if (seen.has(item)) return false;
-    seen.add(item);
-    const values = Array.isArray(item) ? item : Object.values(item);
-    return values.every((child) => walk(child, level + 1));
-  };
-  if (!walk(value, 0))
-    return diagnostic(
-      maxDepth > MAX_JSON_DEPTH ? 'event-too-deep' : 'invalid-envelope',
-      maxDepth > MAX_JSON_DEPTH ? 'depth' : undefined,
-    );
+  let nodes = 0;
+  let failure: ProtocolDiagnostic | undefined;
+  let bytes = 0;
+  let encoder: TextEncoder;
   try {
-    const encoded = new TextEncoder().encode(JSON.stringify(value));
-    return { bytes: encoded.byteLength, depth: maxDepth };
+    encoder = new TextEncoder();
+  } catch {
+    return diagnostic('invalid-envelope');
+  }
+
+  const append = (fragment: string): void => {
+    if (failure) return;
+    try {
+      const fragmentBytes = encoder.encode(fragment).byteLength;
+      if (fragmentBytes > byteLimit - bytes) {
+        failure = diagnostic('event-too-large', 'size');
+        return;
+      }
+      bytes += fragmentBytes;
+    } catch {
+      failure = diagnostic('invalid-envelope');
+    }
+  };
+
+  const write = (item: unknown, level: number): void => {
+    if (failure) return;
+    maxDepth = Math.max(maxDepth, level);
+    if (level > MAX_JSON_DEPTH) {
+      failure = diagnostic('event-too-deep', 'depth');
+      return;
+    }
+    nodes += 1;
+    if (nodes > MAX_CANONICAL_STATE_NODES) {
+      failure = diagnostic('event-too-large', 'size');
+      return;
+    }
+    if (item === null) {
+      append('null');
+      return;
+    }
+    if (typeof item === 'boolean') {
+      append(item ? 'true' : 'false');
+      return;
+    }
+    if (typeof item === 'string') {
+      let encoded: string | undefined;
+      try {
+        encoded = JSON.stringify(item);
+      } catch {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      if (encoded === undefined) {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      append(encoded);
+      return;
+    }
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      append(String(item));
+      return;
+    }
+    if (typeof item !== 'object') {
+      failure = diagnostic('invalid-envelope');
+      return;
+    }
+    if (seen.has(item)) {
+      failure = diagnostic('invalid-envelope');
+      return;
+    }
+    seen.add(item);
+
+    let isArray: boolean;
+    try {
+      isArray = Array.isArray(item);
+    } catch {
+      failure = diagnostic('invalid-envelope');
+      return;
+    }
+    if (isArray) {
+      let lengthDescriptor: PropertyDescriptor | undefined;
+      try {
+        lengthDescriptor = Object.getOwnPropertyDescriptor(item, 'length');
+      } catch {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      if (
+        lengthDescriptor === undefined ||
+        !hasOwn(lengthDescriptor as Record<string, unknown>, 'value') ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0 ||
+        lengthDescriptor.value > MAX_CANONICAL_ARRAY_LENGTH
+      ) {
+        failure = diagnostic('event-too-large', 'size');
+        return;
+      }
+      const length = lengthDescriptor.value as number;
+      append('[');
+      for (let index = 0; index < length; index += 1) {
+        let descriptor: PropertyDescriptor | undefined;
+        try {
+          descriptor = Object.getOwnPropertyDescriptor(item, String(index));
+        } catch {
+          failure = diagnostic('invalid-envelope');
+          return;
+        }
+        if (
+          descriptor === undefined ||
+          !hasOwn(descriptor as Record<string, unknown>, 'value') ||
+          descriptor.enumerable !== true
+        ) {
+          failure = diagnostic('invalid-envelope');
+          return;
+        }
+        if (index > 0) append(',');
+        write(descriptor.value, level + 1);
+        if (failure) return;
+      }
+      append(']');
+      return;
+    }
+
+    let keys: string[];
+    try {
+      keys = Object.keys(item);
+    } catch {
+      failure = diagnostic('invalid-envelope');
+      return;
+    }
+    if (keys.length > MAX_CANONICAL_OBJECT_KEYS) {
+      failure = diagnostic('event-too-large', 'size');
+      return;
+    }
+    append('{');
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = readOwnArraySlot(keys, index);
+      if (key === undefined) {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      let descriptor: PropertyDescriptor | undefined;
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(item, key);
+      } catch {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      if (
+        descriptor === undefined ||
+        !hasOwn(descriptor as Record<string, unknown>, 'value') ||
+        descriptor.enumerable !== true
+      ) {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      let encodedKey: string | undefined;
+      try {
+        encodedKey = JSON.stringify(key);
+      } catch {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      if (encodedKey === undefined) {
+        failure = diagnostic('invalid-envelope');
+        return;
+      }
+      if (index > 0) append(',');
+      append(encodedKey);
+      append(':');
+      write(descriptor.value, level + 1);
+      if (failure) return;
+    }
+    append('}');
+  };
+
+  try {
+    write(value, 0);
+    if (failure) return failure;
+    const result = detachedObject<{ bytes: number; depth: number }>();
+    result.bytes = bytes;
+    result.depth = maxDepth;
+    return result;
   } catch {
     return diagnostic('invalid-envelope');
   }
@@ -2027,64 +2675,81 @@ function validateSemantics(
 }
 
 export function validateEvent(input: unknown): ValidationResult {
-  if (!isRecord(input))
-    return { status: 'rejected', diagnostics: [diagnostic('invalid-envelope')] };
-  const bounds = serializedBounds(input);
-  if ('code' in bounds) return { status: 'rejected', diagnostics: [bounds] };
-  if ((bounds.bytes ?? 0) > MAX_EVENT_BYTES)
-    return { status: 'rejected', diagnostics: [diagnostic('event-too-large', 'size')] };
-  if ((bounds.depth ?? 0) > MAX_JSON_DEPTH)
-    return { status: 'rejected', diagnostics: [diagnostic('event-too-deep', 'depth')] };
-  if (!semver(input.version))
-    return { status: 'rejected', diagnostics: [diagnostic('invalid-version', 'version')] };
-  const major = safeMajor(input.version);
-  if (major !== 1)
-    return {
-      status: 'quarantined',
-      diagnostics: [diagnostic('unsupported-major', 'version', undefined, major)],
-    };
-  const type = input.type;
-  if (typeof type !== 'string')
-    return { status: 'rejected', diagnostics: [diagnostic('unknown-event', 'type')] };
-  if (!coreTypes.includes(type as CoreEventType)) {
-    if (!type.startsWith('x.'))
-      return { status: 'rejected', diagnostics: [diagnostic('unknown-event', 'type')] };
-    if (!extensionPattern.test(type))
-      return { status: 'rejected', diagnostics: [diagnostic('invalid-extension', 'type')] };
-    const extension = input.extension;
-    if (
-      !isRecord(extension) ||
-      extension.fallback !== 'preserve-in-journal' ||
-      typeof extension.documentation !== 'string' ||
-      [...extension.documentation].length < 1 ||
-      [...extension.documentation].length > 512
-    )
-      return { status: 'rejected', diagnostics: [diagnostic('invalid-extension', 'extension')] };
-    const extensionBytes = serializedBounds(input.data);
-    if ('code' in extensionBytes || (extensionBytes.bytes ?? 0) > MAX_EXTENSION_BYTES)
+  try {
+    const runtime = getAjvRuntime();
+    const snapshotResult = createValidationSnapshot(input);
+    if (!snapshotResult.ok) return { status: 'rejected', diagnostics: [snapshotResult.diagnostic] };
+    const event = snapshotResult.value as Record<string, unknown>;
+    const bounds = serializedBounds(event);
+    if (hasOwn(bounds as Record<string, unknown>, 'code'))
+      return { status: 'rejected', diagnostics: [bounds as ProtocolDiagnostic] };
+    const sizeBounds = bounds as { bytes?: number; depth?: number };
+    if ((sizeBounds.bytes ?? 0) > MAX_EVENT_BYTES)
       return { status: 'rejected', diagnostics: [diagnostic('event-too-large', 'size')] };
-    const extensionValid = extensionValidator(input);
-    if (!extensionValid)
+    if ((sizeBounds.depth ?? 0) > MAX_JSON_DEPTH)
+      return { status: 'rejected', diagnostics: [diagnostic('event-too-deep', 'depth')] };
+    if (!semver(event.version))
+      return { status: 'rejected', diagnostics: [diagnostic('invalid-version', 'version')] };
+    const major = safeMajor(event.version);
+    if (major !== 1)
+      return {
+        status: 'quarantined',
+        diagnostics: [diagnostic('unsupported-major', 'version', undefined, major)],
+      };
+    const type = event.type;
+    if (typeof type !== 'string')
+      return { status: 'rejected', diagnostics: [diagnostic('unknown-event', 'type')] };
+    if (!containsString(coreTypes, type)) {
+      if (!type.startsWith('x.'))
+        return { status: 'rejected', diagnostics: [diagnostic('unknown-event', 'type')] };
+      if (!extensionPattern.test(type))
+        return { status: 'rejected', diagnostics: [diagnostic('invalid-extension', 'type')] };
+      const extension = event.extension;
+      if (
+        !isRecord(extension) ||
+        extension.fallback !== 'preserve-in-journal' ||
+        typeof extension.documentation !== 'string' ||
+        codePointLength(extension.documentation) < 1 ||
+        codePointLength(extension.documentation) > 512
+      )
+        return { status: 'rejected', diagnostics: [diagnostic('invalid-extension', 'extension')] };
+      const extensionBytes = serializedBounds(event.data, MAX_EXTENSION_BYTES);
+      if (
+        hasOwn(extensionBytes as Record<string, unknown>, 'code') ||
+        ((extensionBytes as { bytes?: number }).bytes ?? 0) > MAX_EXTENSION_BYTES
+      )
+        return { status: 'rejected', diagnostics: [diagnostic('event-too-large', 'size')] };
+      const extensionValid = runtime.extensionValidator(event);
+      if (!extensionValid)
+        return {
+          status: 'rejected',
+          diagnostics: [diagnostic('invalid-extension', 'extension')],
+        };
+      return {
+        status: 'preserved-extension',
+        event: event as ExtensionEvent,
+        diagnostics: [{ code: 'extension-preserved', severity: 'warning', field: 'type' }],
+      };
+    }
+    const eventType = type as CoreEventType;
+    const validator = runtime.validators.get(eventType);
+    const valid = validator?.(event);
+    if (!valid)
       return {
         status: 'rejected',
-        diagnostics: [diagnostic('invalid-extension', 'extension')],
+        diagnostics: [
+          mapAjvError(
+            validator === undefined ? undefined : readOwnArraySlot(validator.errors ?? [], 0),
+            eventType,
+          ),
+        ],
       };
-    return {
-      status: 'preserved-extension',
-      event: input as ExtensionEvent,
-      diagnostics: [{ code: 'extension-preserved', severity: 'warning', field: 'type' }],
-    };
+    const semanticDiagnostic = validateSemantics(event, eventType);
+    if (semanticDiagnostic) return { status: 'rejected', diagnostics: [semanticDiagnostic] };
+    return { status: 'accepted', event: event as AnyCoreEvent, diagnostics: [] };
+  } catch {
+    return { status: 'rejected', diagnostics: [diagnostic('invalid-envelope')] };
   }
-  const eventType = type as CoreEventType;
-  const valid = validators.get(eventType)?.(input);
-  if (!valid)
-    return {
-      status: 'rejected',
-      diagnostics: [mapAjvError(validators.get(eventType)?.errors?.[0], eventType)],
-    };
-  const semanticDiagnostic = validateSemantics(input, eventType);
-  if (semanticDiagnostic) return { status: 'rejected', diagnostics: [semanticDiagnostic] };
-  return { status: 'accepted', event: input as AnyCoreEvent, diagnostics: [] };
 }
 
 export function isCoreEvent(value: unknown): value is AnyCoreEvent {
@@ -2093,6 +2758,908 @@ export function isCoreEvent(value: unknown): value is AnyCoreEvent {
 
 /** Exposed for conformance tests and consumers that want to preflight compilation. */
 export function compileCoreEventSchemas(): readonly ValidateFunction[] {
-  registerProtocolSchemaKeywords(ajv);
-  return coreTypes.map((type) => ajv.compile(coreEventSchemas[type]));
+  const runtime = getAjvRuntime();
+  registerProtocolSchemaKeywords(runtime.ajv);
+  const compiled = new Array<ValidateFunction>(coreTypes.length);
+  for (let index = 0; index < coreTypes.length; index += 1) {
+    const type = readOwnArraySlot(coreTypes, index);
+    if (type === undefined) throw new Error('invalid core event registry');
+    defineOwnArraySlot(compiled, index, runtime.ajv.compile(coreEventSchemas[type]));
+  }
+  return compiled;
+}
+
+/**
+ * The JSON value accepted by the canonical state serializer.
+ *
+ * Runtime serialization is stricter than the TypeScript `number` type: only
+ * finite numbers are accepted, and `-0` is represented canonically as `0`.
+ */
+export type CanonicalJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly CanonicalJsonValue[]
+  | { readonly [key: string]: CanonicalJsonValue };
+
+/** JSON-compatible entity path segments. `{ each: true }` explicitly crosses an array. */
+export type CanonicalEntityPathSegment = string | number | { readonly each: true };
+
+/**
+ * Explicitly identifies one state array whose records are entities. A path
+ * string selects an object property, a number selects an exact array index,
+ * and `{ each: true }` selects every array index. The empty path identifies
+ * a root array. Unlisted arrays retain their semantic order.
+ */
+export interface CanonicalEntityCollection {
+  readonly path: readonly CanonicalEntityPathSegment[];
+  /** Own property containing a non-empty stable string ID on every record. */
+  readonly idKey: string;
+}
+
+/** Options for canonical state serialization. */
+export interface CanonicalStateOptions {
+  readonly entityCollections?: readonly CanonicalEntityCollection[];
+}
+
+/**
+ * Input arrays may use the ordinary Array.prototype or null as their prototype;
+ * subclass and arbitrary custom-prototype arrays are rejected. Returned arrays
+ * always use the standard Array.prototype and retain normal array behavior.
+ */
+
+/** Stable, bounded failure surface for canonical serialization. */
+export type CanonicalSerializationErrorCode =
+  | 'invalid-json-value'
+  | 'sparse-array'
+  | 'unsupported-prototype'
+  | 'accessor-property'
+  | 'unsupported-property'
+  | 'cycle'
+  | 'invalid-options'
+  | 'entity-collection-path'
+  | 'entity-collection-not-array'
+  | 'missing-entity-id'
+  | 'invalid-entity-id'
+  | 'duplicate-entity-id'
+  | 'event-not-accepted'
+  | 'event-quarantined'
+  | 'event-extension-not-supported'
+  | 'state-too-deep'
+  | 'state-too-many-nodes'
+  | 'state-too-many-containers'
+  | 'state-too-large'
+  | 'array-too-large'
+  | 'object-too-large'
+  | 'string-too-large'
+  | 'entity-options-too-large'
+  | 'entity-path-too-long'
+  | 'entity-path-segment-too-long'
+  | 'invalid-entity-path-segment'
+  | 'entity-id-too-long'
+  | 'ambiguous-entity-collection'
+  | 'serialization-failed';
+
+/**
+ * Error thrown when a value cannot be represented by the canonical JSON
+ * contract. Paths are structural only: object keys, IDs, option strings, and
+ * getter messages are never copied into the error.
+ */
+export class CanonicalSerializationError extends Error {
+  override readonly name = 'CanonicalSerializationError';
+
+  constructor(
+    readonly code: CanonicalSerializationErrorCode,
+    readonly path?: string,
+  ) {
+    super(`canonical serialization failed: ${code}${path ? ` at ${path}` : ''}`);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+type CanonicalPathPart = string | number;
+type NormalizedEntityPathSegment = CanonicalEntityPathSegment;
+interface NormalizedEntityCollection {
+  readonly path: readonly NormalizedEntityPathSegment[];
+  readonly pathKey: string;
+  readonly idKey: string;
+}
+interface PropertySnapshot {
+  readonly key: string;
+  readonly value: unknown;
+}
+interface ObjectSnapshot {
+  readonly properties: readonly PropertySnapshot[];
+}
+interface ArraySnapshot {
+  readonly values: readonly unknown[];
+}
+interface NormalizationContext {
+  readonly collections: readonly NormalizedEntityCollection[];
+  readonly matchedCollections: Set<string>;
+  readonly ancestors: WeakSet<object>;
+  nodes: number;
+  containers: number;
+  stringCodeUnits: number;
+}
+
+const MAX_SERIALIZATION_ERROR_PATH = 128;
+const authenticCanonicalSerializationErrors = new WeakSet<CanonicalSerializationError>();
+
+function codeUnitCompare(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = left.charCodeAt(index) - right.charCodeAt(index);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
+}
+
+/** Converts names to bounded structural placeholders, never echoing input keys. */
+function formatSerializationPath(path: readonly CanonicalPathPart[]): string {
+  let formatted = '$';
+  for (let index = 0; index < path.length; index += 1) {
+    const part = readOwnArraySlot(path, index);
+    if (part === undefined) return formatted;
+    formatted += typeof part === 'number' ? `[${part}]` : '.object';
+    if (formatted.length >= MAX_SERIALIZATION_ERROR_PATH)
+      return `${formatted.slice(0, MAX_SERIALIZATION_ERROR_PATH - 3)}...`;
+  }
+  return formatted;
+}
+
+function createAuthenticCanonicalSerializationError(
+  code: CanonicalSerializationErrorCode,
+  path: readonly CanonicalPathPart[] = [],
+): CanonicalSerializationError {
+  const error = new CanonicalSerializationError(code, formatSerializationPath(path));
+  authenticCanonicalSerializationErrors.add(error);
+  Object.freeze(error);
+  return error;
+}
+
+function serializationFailure(
+  code: CanonicalSerializationErrorCode,
+  path: readonly CanonicalPathPart[] = [],
+): never {
+  throw createAuthenticCanonicalSerializationError(code, path);
+}
+
+function isAuthenticCanonicalSerializationError(
+  error: unknown,
+): error is CanonicalSerializationError {
+  if ((typeof error !== 'object' || error === null) && typeof error !== 'function') return false;
+  return authenticCanonicalSerializationErrors.has(error as CanonicalSerializationError);
+}
+
+function runCanonical<T>(operation: () => T): T {
+  try {
+    return operation();
+  } catch (error) {
+    if (isAuthenticCanonicalSerializationError(error)) throw error;
+    serializationFailure('serialization-failed');
+  }
+}
+
+function safeIsArray(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode = 'invalid-json-value',
+): boolean {
+  try {
+    return Array.isArray(value);
+  } catch {
+    serializationFailure(code, path);
+  }
+}
+
+function safeOwnKeys(
+  value: object,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode,
+): readonly (string | symbol)[] {
+  try {
+    return Reflect.ownKeys(value);
+  } catch {
+    serializationFailure(code, path);
+  }
+}
+
+function safeOwnPropertyDescriptor(
+  value: object,
+  key: string | symbol,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode,
+): PropertyDescriptor | undefined {
+  try {
+    return Object.getOwnPropertyDescriptor(value, key);
+  } catch {
+    serializationFailure(code, path);
+  }
+}
+
+function safePrototype(
+  value: object,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode,
+): object | null {
+  try {
+    return Object.getPrototypeOf(value);
+  } catch {
+    serializationFailure(code, path);
+  }
+}
+
+function requirePlainObject(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode,
+): asserts value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || safeIsArray(value, path, code))
+    serializationFailure(code, path);
+  const prototype = safePrototype(value, path, code);
+  if (prototype !== Object.prototype && prototype !== null)
+    serializationFailure(
+      code === 'invalid-json-value' || code === 'invalid-entity-id'
+        ? 'unsupported-prototype'
+        : code,
+      path,
+    );
+}
+
+function isDataDescriptor(
+  descriptor: PropertyDescriptor | undefined,
+): descriptor is PropertyDescriptor & {
+  value: unknown;
+} {
+  return descriptor !== undefined && 'value' in descriptor;
+}
+
+function insertionSort<T>(values: T[], compare: (left: T, right: T) => number): void {
+  for (let index = 1; index < values.length; index += 1) {
+    const current = readOwnArraySlot(values, index);
+    if (current === undefined) throw new Error('invalid structural array');
+    let position = index - 1;
+    while (position >= 0) {
+      const previous = readOwnArraySlot(values, position);
+      if (previous === undefined) throw new Error('invalid structural array');
+      if (compare(previous, current) <= 0) break;
+      defineOwnArraySlot(values, position + 1, previous);
+      position -= 1;
+    }
+    defineOwnArraySlot(values, position + 1, current);
+  }
+}
+
+function findProperty(
+  properties: readonly PropertySnapshot[],
+  key: string,
+): PropertySnapshot | undefined {
+  for (let index = 0; index < properties.length; index += 1) {
+    const property = readOwnArraySlot(properties, index);
+    if (property?.key === key) return property;
+  }
+  return undefined;
+}
+
+function snapshotObject(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode,
+): ObjectSnapshot {
+  requirePlainObject(value, path, code);
+  const keys = safeOwnKeys(value, path, code);
+  if (keys.length > MAX_CANONICAL_OBJECT_KEYS) {
+    serializationFailure(
+      code === 'invalid-options' ? 'entity-options-too-large' : 'object-too-large',
+      path,
+    );
+  }
+  const properties: PropertySnapshot[] = new Array<PropertySnapshot>(keys.length);
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    const key = readOwnArraySlot(keys, keyIndex);
+    if (typeof key !== 'string')
+      serializationFailure(code === 'invalid-options' ? code : 'invalid-json-value', path);
+    if (key.length > MAX_CANONICAL_STRING_CODE_UNITS)
+      serializationFailure(
+        code === 'invalid-options' ? 'entity-path-segment-too-long' : 'string-too-large',
+        path,
+      );
+    const propertyPath = appendPath(path, key);
+    const descriptor = safeOwnPropertyDescriptor(value, key, propertyPath, code);
+    if (!descriptor) serializationFailure(code, propertyPath);
+    if (!descriptor.enumerable)
+      serializationFailure(code === 'invalid-options' ? code : 'unsupported-property', path);
+    if (!isDataDescriptor(descriptor))
+      serializationFailure(code === 'invalid-options' ? code : 'accessor-property', path);
+    defineOwnArraySlot(properties, keyIndex, { key, value: descriptor.value });
+  }
+  insertionSort(properties, (left, right) => codeUnitCompare(left.key, right.key));
+  return { properties };
+}
+
+function isCanonicalArrayIndex(key: string): boolean {
+  const index = Number(key);
+  return Number.isSafeInteger(index) && index >= 0 && index < 2 ** 32 - 1 && String(index) === key;
+}
+
+function snapshotArray(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+  code: CanonicalSerializationErrorCode,
+): ArraySnapshot {
+  if (!safeIsArray(value, path, code)) serializationFailure(code, path);
+  const arrayValue = value as object;
+  const prototype = safePrototype(arrayValue, path, code);
+  if (prototype !== Array.prototype && prototype !== null)
+    serializationFailure(code === 'invalid-options' ? code : 'unsupported-prototype', path);
+  const lengthDescriptor = safeOwnPropertyDescriptor(arrayValue, 'length', path, code);
+  if (!isDataDescriptor(lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value))
+    serializationFailure(code, path);
+  const length = lengthDescriptor.value;
+  if (length < 0 || length > MAX_CANONICAL_ARRAY_LENGTH)
+    serializationFailure(
+      code === 'invalid-options' ? 'entity-options-too-large' : 'array-too-large',
+      path,
+    );
+  const keys = safeOwnKeys(arrayValue, path, code);
+  const values = detachedArray<unknown>(length);
+  const present = detachedArray<boolean>(length);
+  for (let index = 0; index < length; index += 1) defineOwnArraySlot(present, index, false);
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    const key = readOwnArraySlot(keys, keyIndex);
+    if (typeof key !== 'string')
+      serializationFailure(code === 'invalid-options' ? code : 'invalid-json-value', path);
+    if (key === 'length') continue;
+    if (!isCanonicalArrayIndex(key))
+      serializationFailure(code === 'invalid-options' ? code : 'unsupported-property', path);
+    const index = Number(key);
+    if (index >= length)
+      serializationFailure(code === 'invalid-options' ? code : 'unsupported-property', path);
+    const descriptor = safeOwnPropertyDescriptor(arrayValue, key, appendPath(path, index), code);
+    if (!isDataDescriptor(descriptor))
+      serializationFailure(code === 'invalid-options' ? code : 'accessor-property', path);
+    if (!descriptor.enumerable)
+      serializationFailure(code === 'invalid-options' ? code : 'unsupported-property', path);
+    defineOwnArraySlot(values, index, descriptor.value);
+    defineOwnArraySlot(present, index, true);
+  }
+  for (let index = 0; index < length; index += 1) {
+    if (readOwnArraySlot(present, index) !== true)
+      serializationFailure(
+        code === 'invalid-options' ? code : 'sparse-array',
+        appendPath(path, index),
+      );
+  }
+  return { values };
+}
+
+function optionProperties(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+  allowed: readonly string[],
+): ObjectSnapshot {
+  const snapshot = snapshotObject(value, path, 'invalid-options');
+  for (let index = 0; index < snapshot.properties.length; index += 1) {
+    const property = readOwnArraySlot(snapshot.properties, index);
+    if (!property) serializationFailure('invalid-options', path);
+    if (!containsString(allowed, property.key)) serializationFailure('invalid-options', path);
+  }
+  return snapshot;
+}
+
+function entityPathKey(path: readonly NormalizedEntityPathSegment[]): string {
+  let result = '';
+  for (let index = 0; index < path.length; index += 1) {
+    const part = readOwnArraySlot(path, index);
+    if (part === undefined) serializationFailure('invalid-options');
+    if (index > 0) result += '|';
+    if (typeof part === 'string') result += `s${part.length}:${part}`;
+    else if (typeof part === 'number') result += `n${part}`;
+    else result += 'w';
+  }
+  return result;
+}
+
+function normalizeEntityPathSegment(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+): NormalizedEntityPathSegment {
+  if (typeof value === 'string') {
+    if (value.length > MAX_ENTITY_PATH_SEGMENT_CODE_UNITS)
+      serializationFailure('entity-path-segment-too-long', path);
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_CANONICAL_ARRAY_LENGTH)
+      serializationFailure('invalid-entity-path-segment', path);
+    return value;
+  }
+  const wildcard = readOwnArraySlot(optionProperties(value, path, ['each']).properties, 0);
+  if (!wildcard || wildcard.key !== 'each' || wildcard.value !== true)
+    serializationFailure('invalid-entity-path-segment', path);
+  return { each: true };
+}
+
+function normalizeEntityCollections(options: unknown): readonly NormalizedEntityCollection[] {
+  if (options === undefined) return [];
+  const properties = optionProperties(options, [], ['entityCollections']);
+  const collectionProperty = findProperty(properties.properties, 'entityCollections');
+  if (!collectionProperty) return [];
+  const collectionArray = snapshotArray(collectionProperty.value, [], 'invalid-options');
+  if (collectionArray.values.length > MAX_ENTITY_COLLECTIONS)
+    serializationFailure('entity-options-too-large');
+  const collections: NormalizedEntityCollection[] = [];
+  const pathKeys = new Set<string>();
+  for (
+    let collectionIndex = 0;
+    collectionIndex < collectionArray.values.length;
+    collectionIndex += 1
+  ) {
+    const entryPath: CanonicalPathPart[] = [collectionIndex];
+    const collectionValue = readOwnArraySlot(collectionArray.values, collectionIndex);
+    const entryProperties = optionProperties(collectionValue, entryPath, ['path', 'idKey']);
+    const rawPath = findProperty(entryProperties.properties, 'path')?.value;
+    const rawIdKey = findProperty(entryProperties.properties, 'idKey')?.value;
+    if (rawPath === undefined || typeof rawIdKey !== 'string' || rawIdKey.length === 0)
+      serializationFailure('invalid-options', entryPath);
+    if (rawIdKey.length > MAX_ENTITY_ID_CODE_UNITS)
+      serializationFailure('entity-id-too-long', entryPath);
+    const pathSnapshot = snapshotArray(rawPath, appendPath(entryPath, 0), 'invalid-options');
+    if (pathSnapshot.values.length > MAX_ENTITY_PATH_SEGMENTS)
+      serializationFailure('entity-path-too-long', entryPath);
+    const path: NormalizedEntityPathSegment[] = [];
+    for (let index = 0; index < pathSnapshot.values.length; index += 1) {
+      const segment = readOwnArraySlot(pathSnapshot.values, index);
+      defineOwnArraySlot(
+        path,
+        path.length,
+        normalizeEntityPathSegment(segment, appendPath(entryPath, index)),
+      );
+    }
+    const pathKey = entityPathKey(path);
+    if (pathKeys.has(pathKey)) serializationFailure('invalid-options', entryPath);
+    pathKeys.add(pathKey);
+    defineOwnArraySlot(collections, collections.length, { path, pathKey, idKey: rawIdKey });
+  }
+  return collections;
+}
+
+function matchesEntityPath(
+  pattern: readonly NormalizedEntityPathSegment[],
+  path: readonly CanonicalPathPart[],
+): boolean {
+  if (pattern.length !== path.length) return false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const segment = readOwnArraySlot(pattern, index);
+    const actual = readOwnArraySlot(path, index);
+    if (typeof segment === 'string') {
+      if (typeof actual !== 'string' || segment !== actual) return false;
+    } else if (typeof segment === 'number') {
+      if (typeof actual !== 'number' || segment !== actual) return false;
+    } else if (typeof actual !== 'number') return false;
+  }
+  return true;
+}
+
+function matchingCollections(
+  collections: readonly NormalizedEntityCollection[],
+  path: readonly CanonicalPathPart[],
+): readonly NormalizedEntityCollection[] {
+  const matches: NormalizedEntityCollection[] = [];
+  for (let index = 0; index < collections.length; index += 1) {
+    const collection = readOwnArraySlot(collections, index);
+    if (!collection) serializationFailure('invalid-options', path);
+    if (matchesEntityPath(collection.path, path))
+      defineOwnArraySlot(matches, matches.length, collection);
+  }
+  return matches;
+}
+
+function consumeNode(context: NormalizationContext, value: unknown): void {
+  context.nodes += 1;
+  if (context.nodes > MAX_CANONICAL_STATE_NODES) serializationFailure('state-too-many-nodes');
+  if (typeof value === 'string') {
+    if (value.length > MAX_CANONICAL_STRING_CODE_UNITS) serializationFailure('string-too-large');
+    context.stringCodeUnits += value.length;
+    if (context.stringCodeUnits > MAX_CANONICAL_TOTAL_STRING_CODE_UNITS)
+      serializationFailure('state-too-large');
+  }
+}
+
+function consumeObjectKeys(
+  context: NormalizationContext,
+  snapshot: ObjectSnapshot,
+  path: readonly CanonicalPathPart[],
+): void {
+  for (let index = 0; index < snapshot.properties.length; index += 1) {
+    const property = readOwnArraySlot(snapshot.properties, index);
+    if (property === undefined) serializationFailure('serialization-failed', path);
+    if (property.key.length > MAX_CANONICAL_STRING_CODE_UNITS)
+      serializationFailure('string-too-large', path);
+    context.stringCodeUnits += property.key.length;
+    if (context.stringCodeUnits > MAX_CANONICAL_TOTAL_STRING_CODE_UNITS)
+      serializationFailure('state-too-large', path);
+  }
+}
+
+function consumeContainer(context: NormalizationContext): void {
+  context.containers += 1;
+  if (context.containers > MAX_CANONICAL_STATE_CONTAINERS)
+    serializationFailure('state-too-many-containers');
+}
+
+function entityItemSnapshot(
+  value: unknown,
+  idKey: string,
+  path: readonly CanonicalPathPart[],
+): { readonly id: string; readonly snapshot: ObjectSnapshot } {
+  const snapshot = snapshotObject(value, path, 'invalid-entity-id');
+  const id = findProperty(snapshot.properties, idKey)?.value;
+  if (id === undefined) serializationFailure('missing-entity-id', path);
+  if (typeof id !== 'string' || id.length === 0) serializationFailure('invalid-entity-id', path);
+  if (id.length > MAX_ENTITY_ID_CODE_UNITS) serializationFailure('entity-id-too-long', path);
+  return { id, snapshot };
+}
+
+function normalizeJsonValue(
+  value: unknown,
+  path: readonly CanonicalPathPart[],
+  context: NormalizationContext,
+  depth: number,
+  preloadedObject?: ObjectSnapshot,
+): CanonicalJsonValue {
+  if (depth > MAX_CANONICAL_STATE_DEPTH) serializationFailure('state-too-deep', path);
+  consumeNode(context, value);
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) serializationFailure('invalid-json-value', path);
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (
+    typeof value !== 'object' ||
+    typeof value === 'undefined' ||
+    typeof value === 'function' ||
+    typeof value === 'symbol' ||
+    typeof value === 'bigint'
+  )
+    serializationFailure('invalid-json-value', path);
+  if (context.ancestors.has(value)) serializationFailure('cycle', path);
+  context.ancestors.add(value);
+  try {
+    consumeContainer(context);
+    const matches = matchingCollections(context.collections, path);
+    if (matches.length > 1) serializationFailure('ambiguous-entity-collection', path);
+    const isArray = safeIsArray(value, path);
+    if (matches.length === 1 && !isArray) serializationFailure('entity-collection-not-array', path);
+    if (isArray) {
+      const snapshot = snapshotArray(value, path, 'invalid-json-value');
+      const output = detachedArray<CanonicalJsonValue>(snapshot.values.length);
+      if (matches.length === 1) {
+        const collection = readOwnArraySlot(matches, 0);
+        if (!collection) serializationFailure('ambiguous-entity-collection', path);
+        context.matchedCollections.add(collection.pathKey);
+        const entries: { id: string; item: CanonicalJsonValue }[] = new Array(
+          snapshot.values.length,
+        );
+        const ids = new Set<string>();
+        for (let index = 0; index < snapshot.values.length; index += 1) {
+          const itemPath = appendPath(path, index);
+          const rawItem = readOwnArraySlot(snapshot.values, index);
+          if (rawItem === undefined) serializationFailure('sparse-array', itemPath);
+          const item = entityItemSnapshot(rawItem, collection.idKey, itemPath);
+          if (ids.has(item.id)) serializationFailure('duplicate-entity-id', path);
+          ids.add(item.id);
+          defineOwnArraySlot(entries, index, {
+            id: item.id,
+            item: normalizeJsonValue(rawItem, itemPath, context, depth + 1, item.snapshot),
+          });
+        }
+        insertionSort(entries, (left, right) => codeUnitCompare(left.id, right.id));
+        for (let index = 0; index < entries.length; index += 1) {
+          const entry = readOwnArraySlot(entries, index);
+          if (!entry) serializationFailure('invalid-json-value', path);
+          defineOwnArraySlot(output, index, entry.item);
+        }
+        return output;
+      }
+      for (let index = 0; index < snapshot.values.length; index += 1) {
+        const child = readOwnArraySlot(snapshot.values, index);
+        if (child === undefined) serializationFailure('sparse-array', appendPath(path, index));
+        defineOwnArraySlot(
+          output,
+          index,
+          normalizeJsonValue(child, appendPath(path, index), context, depth + 1),
+        );
+      }
+      return output;
+    }
+    const snapshot = preloadedObject ?? snapshotObject(value, path, 'invalid-json-value');
+    consumeObjectKeys(context, snapshot, path);
+    const output = detachedObject<Record<string, CanonicalJsonValue>>();
+    for (let propertyIndex = 0; propertyIndex < snapshot.properties.length; propertyIndex += 1) {
+      const property = readOwnArraySlot(snapshot.properties, propertyIndex);
+      if (!property) serializationFailure('invalid-json-value', path);
+      const normalized = normalizeJsonValue(
+        property.value,
+        appendPath(path, property.key),
+        context,
+        depth + 1,
+      );
+      Object.defineProperty(output, property.key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: normalized,
+      });
+    }
+    return output;
+  } finally {
+    context.ancestors.delete(value);
+  }
+}
+
+function canonicalOwnDataValue(value: object, key: string): unknown {
+  let descriptor: PropertyDescriptor | undefined;
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, key);
+  } catch {
+    serializationFailure('serialization-failed');
+  }
+  if (!isDataDescriptor(descriptor) || descriptor.enumerable !== true)
+    serializationFailure('serialization-failed');
+  return descriptor.value;
+}
+
+function canonicalArrayLength(value: object): number {
+  let descriptor: PropertyDescriptor | undefined;
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, 'length');
+  } catch {
+    serializationFailure('serialization-failed');
+  }
+  if (!isDataDescriptor(descriptor) || !Number.isSafeInteger(descriptor.value))
+    serializationFailure('serialization-failed');
+  return descriptor.value;
+}
+
+interface CanonicalTextWriter {
+  readonly encoder: TextEncoder;
+  text: string;
+  bytes: number;
+}
+
+function createCanonicalTextWriter(): CanonicalTextWriter {
+  try {
+    return { encoder: new TextEncoder(), text: '', bytes: 0 };
+  } catch {
+    serializationFailure('serialization-failed');
+  }
+}
+
+function appendCanonicalText(writer: CanonicalTextWriter, fragment: string): void {
+  let bytes: number;
+  try {
+    bytes = writer.encoder.encode(fragment).byteLength;
+  } catch {
+    serializationFailure('serialization-failed');
+  }
+  if (bytes > MAX_CANONICAL_STATE_BYTES - writer.bytes) serializationFailure('state-too-large');
+  writer.text += fragment;
+  writer.bytes += bytes;
+}
+
+function canonicalJsonString(value: CanonicalJsonValue): string {
+  const writer = createCanonicalTextWriter();
+  const write = (item: CanonicalJsonValue, depth: number): void => {
+    if (depth > MAX_CANONICAL_STATE_DEPTH) serializationFailure('state-too-deep');
+    if (item === null) {
+      appendCanonicalText(writer, 'null');
+      return;
+    }
+    if (typeof item === 'boolean') {
+      appendCanonicalText(writer, item ? 'true' : 'false');
+      return;
+    }
+    if (typeof item === 'string') {
+      let encoded: string | undefined;
+      try {
+        encoded = JSON.stringify(item);
+      } catch {
+        serializationFailure('serialization-failed');
+      }
+      if (encoded === undefined) serializationFailure('invalid-json-value');
+      appendCanonicalText(writer, encoded);
+      return;
+    }
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) serializationFailure('invalid-json-value');
+      appendCanonicalText(writer, Object.is(item, -0) ? '0' : String(item));
+      return;
+    }
+    if (Array.isArray(item)) {
+      const lengthValue = canonicalArrayLength(item);
+      if (lengthValue < 0) serializationFailure('serialization-failed');
+      appendCanonicalText(writer, '[');
+      for (let index = 0; index < lengthValue; index += 1) {
+        if (index > 0) appendCanonicalText(writer, ',');
+        write(canonicalOwnDataValue(item, String(index)) as CanonicalJsonValue, depth + 1);
+      }
+      appendCanonicalText(writer, ']');
+      return;
+    }
+    let keys: string[];
+    try {
+      keys = Object.keys(item);
+    } catch {
+      serializationFailure('serialization-failed');
+    }
+    insertionSort(keys, codeUnitCompare);
+    appendCanonicalText(writer, '{');
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = readOwnArraySlot(keys, index);
+      if (key === undefined) serializationFailure('serialization-failed');
+      let encodedKey: string | undefined;
+      try {
+        encodedKey = JSON.stringify(key);
+      } catch {
+        serializationFailure('serialization-failed');
+      }
+      if (encodedKey === undefined) serializationFailure('invalid-json-value');
+      if (index > 0) appendCanonicalText(writer, ',');
+      appendCanonicalText(writer, encodedKey);
+      appendCanonicalText(writer, ':');
+      write(canonicalOwnDataValue(item, key) as CanonicalJsonValue, depth + 1);
+    }
+    appendCanonicalText(writer, '}');
+  };
+  write(value, 0);
+  return writer.text;
+}
+
+function createNormalizationContext(
+  collections: readonly NormalizedEntityCollection[],
+): NormalizationContext {
+  return {
+    collections,
+    matchedCollections: new Set<string>(),
+    ancestors: new WeakSet<object>(),
+    nodes: 0,
+    containers: 0,
+    stringCodeUnits: 0,
+  };
+}
+
+/**
+ * Returns a fresh canonical JSON-compatible state value. Canonical text and
+ * bytes sort object keys by UTF-16 code unit, including integer-like keys;
+ * JavaScript may enumerate integer-like keys numerically when this returned
+ * object is inspected, which is not the byte-order contract. Ordinary arrays
+ * preserve order. Entity arrays are sorted only by explicitly configured
+ * paths and IDs, using the same UTF-16 code-unit order.
+ */
+export function canonicalizeState(
+  value: unknown,
+  options?: CanonicalStateOptions,
+): CanonicalJsonValue {
+  return runCanonical(() => {
+    const collections = normalizeEntityCollections(options);
+    const context = createNormalizationContext(collections);
+    const result = normalizeJsonValue(value, [], context, 0);
+    for (let index = 0; index < collections.length; index += 1) {
+      const collection = readOwnArraySlot(collections, index);
+      if (!collection) serializationFailure('invalid-options');
+      if (!context.matchedCollections.has(collection.pathKey))
+        serializationFailure('entity-collection-path');
+    }
+    freezeCanonicalSnapshot(result);
+    canonicalJsonString(result);
+    return result;
+  });
+}
+
+/** Serializes a generic state value as compact canonical JSON text. */
+export function serializeCanonicalState(value: unknown, options?: CanonicalStateOptions): string {
+  return runCanonical(() => canonicalJsonString(canonicalizeState(value, options)));
+}
+
+/** Serializes a generic state value as deterministic UTF-8 canonical JSON bytes. */
+export function encodeCanonicalState(value: unknown, options?: CanonicalStateOptions): Uint8Array {
+  return runCanonical(() => {
+    const text = serializeCanonicalState(value, options);
+    try {
+      return new TextEncoder().encode(text);
+    } catch {
+      serializationFailure('serialization-failed');
+    }
+  });
+}
+
+function acceptedCoreEvent(input: unknown): AnyCoreEvent {
+  const result = validateEvent(input);
+  if (result.status === 'quarantined') serializationFailure('event-quarantined');
+  if (result.status === 'preserved-extension')
+    serializationFailure('event-extension-not-supported');
+  if (result.status !== 'accepted') serializationFailure('event-not-accepted');
+  return result.event;
+}
+
+function freezeCanonicalSnapshot(value: CanonicalJsonValue): void {
+  interface PendingSnapshot {
+    readonly value: CanonicalJsonValue;
+    readonly next: PendingSnapshot | undefined;
+  }
+  let pending: PendingSnapshot | undefined = { value, next: undefined };
+  const seen = new WeakSet<object>();
+  while (pending !== undefined) {
+    const current = pending.value;
+    pending = pending.next;
+    if (current === null || typeof current !== 'object') continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    Object.freeze(current);
+    if (Array.isArray(current)) {
+      const length = canonicalArrayLength(current);
+      for (let index = 0; index < length; index += 1) {
+        pending = {
+          value: canonicalOwnDataValue(current, String(index)) as CanonicalJsonValue,
+          next: pending,
+        };
+      }
+    } else {
+      const keys = Object.keys(current);
+      for (let index = 0; index < keys.length; index += 1) {
+        const key = readOwnArraySlot(keys, index);
+        if (key === undefined) serializationFailure('serialization-failed');
+        pending = {
+          value: canonicalOwnDataValue(current, key) as CanonicalJsonValue,
+          next: pending,
+        };
+      }
+    }
+  }
+}
+
+/**
+ * Canonicalizes one semantically accepted core AAP event. The validation
+ * boundary first creates an immutable descriptor snapshot; normalization then
+ * produces a fresh canonical snapshot that is revalidated before it is
+ * returned or serialized. This closes re-entrancy and time-of-check/time-of-use
+ * gaps from mutable objects and proxies.
+ */
+export function canonicalizeEvent(input: unknown): AnyCoreEvent {
+  return runCanonical(() => {
+    const accepted = acceptedCoreEvent(input);
+    const context = createNormalizationContext([]);
+    const snapshot = normalizeJsonValue(accepted, [], context, 0);
+    freezeCanonicalSnapshot(snapshot);
+    const revalidated = validateEvent(snapshot);
+    if (revalidated.status === 'quarantined') serializationFailure('event-quarantined');
+    if (revalidated.status === 'preserved-extension')
+      serializationFailure('event-extension-not-supported');
+    if (revalidated.status !== 'accepted') serializationFailure('event-not-accepted');
+    canonicalJsonString(snapshot);
+    return snapshot as unknown as AnyCoreEvent;
+  });
+}
+
+/** Serializes one accepted core AAP event as compact canonical JSON text. */
+export function serializeCanonicalEvent(input: unknown): string {
+  return runCanonical(() =>
+    canonicalJsonString(canonicalizeEvent(input) as unknown as CanonicalJsonValue),
+  );
+}
+
+/** Serializes one accepted core AAP event as deterministic UTF-8 bytes. */
+export function encodeCanonicalEvent(input: unknown): Uint8Array {
+  return runCanonical(() => {
+    const text = serializeCanonicalEvent(input);
+    try {
+      return new TextEncoder().encode(text);
+    } catch {
+      serializationFailure('serialization-failed');
+    }
+  });
 }

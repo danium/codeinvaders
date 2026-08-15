@@ -5,6 +5,10 @@ import {
   MAX_EVENT_BYTES,
   MAX_EXTENSION_BYTES,
   MAX_JSON_DEPTH,
+  MAX_CANONICAL_ARRAY_LENGTH,
+  MAX_CANONICAL_STATE_BYTES,
+  MAX_CANONICAL_STATE_CONTAINERS,
+  MAX_CANONICAL_STATE_DEPTH,
   compileCoreEventSchemas,
   coreEventSchemas,
   extensionEventSchema,
@@ -25,7 +29,19 @@ import {
   type CoreEvent,
   type CoreEventPayload,
   type CoreEventType,
+  CanonicalSerializationError,
+  canonicalizeEvent,
+  canonicalizeState,
+  encodeCanonicalEvent,
+  encodeCanonicalState,
+  serializeCanonicalEvent,
+  serializeCanonicalState,
 } from './index.js';
+
+declare const process: {
+  readonly execPath: string;
+  cwd(): string;
+};
 
 // @ts-expect-error task events require taskId in addition to the common scope IDs.
 const missingTaskId: CoreEvent<'task.created'>['scope'] = {
@@ -1506,5 +1522,1542 @@ describe('AAP Draft 2020-12 conformance', () => {
       diagnostics: [{ code: 'invalid-extension', severity: 'error', field: 'extension' }],
     });
     expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
+  it('keeps every validateEvent envelope read total without invoking accessors', () => {
+    const canary = 'VALIDATE-TRAP-SECRET';
+    const accessorFields: Array<{
+      field: 'version' | 'type' | 'data' | 'source' | 'scope' | 'semantic';
+      eventType: CoreEventType;
+      enumerable: boolean;
+      diagnosticField: string;
+    }> = [
+      {
+        field: 'version',
+        eventType: 'session.started',
+        enumerable: false,
+        diagnosticField: 'version',
+      },
+      { field: 'type', eventType: 'session.started', enumerable: true, diagnosticField: 'type' },
+      { field: 'data', eventType: 'session.started', enumerable: true, diagnosticField: 'data' },
+      {
+        field: 'source',
+        eventType: 'session.started',
+        enumerable: true,
+        diagnosticField: 'source',
+      },
+      { field: 'scope', eventType: 'session.started', enumerable: true, diagnosticField: 'scope' },
+      { field: 'semantic', eventType: 'task.completed', enumerable: true, diagnosticField: 'data' },
+    ];
+    for (const { field, eventType, enumerable, diagnosticField } of accessorFields) {
+      const candidate = fixture(eventType);
+      let getterCalls = 0;
+      Object.defineProperty(candidate, field, {
+        configurable: true,
+        enumerable,
+        get: () => {
+          getterCalls += 1;
+          throw new Error(canary);
+        },
+      });
+      let result: ReturnType<typeof validateEvent> | undefined;
+      expect(() => {
+        result = validateEvent(candidate);
+      }).not.toThrow();
+      expect(result?.status).toBe('rejected');
+      expect(result?.diagnostics[0]?.field).toBe(diagnosticField);
+      expect(getterCalls).toBe(0);
+      expect(JSON.stringify(result)).not.toContain(canary);
+      expect(() => isCoreEvent(candidate)).not.toThrow();
+      expect(isCoreEvent(candidate)).toBe(false);
+    }
+  });
+
+  it('contains ownKeys, descriptor, prototype, revoked-proxy, and exported-error traps', () => {
+    const canary = 'VALIDATE-PROXY-SECRET';
+    const attackerError = new CanonicalSerializationError('serialization-failed', canary);
+    const candidates: unknown[] = [
+      new Proxy(fixture('session.started'), {
+        ownKeys: () => {
+          throw attackerError;
+        },
+      }),
+      new Proxy(fixture('session.started'), {
+        getOwnPropertyDescriptor: () => {
+          throw new Error(canary);
+        },
+      }),
+      new Proxy(fixture('session.started'), {
+        getPrototypeOf: () => {
+          throw new Error(canary);
+        },
+      }),
+      Object.create({ leakedPrototype: canary }),
+      [],
+      new Date(),
+    ];
+    const revoked = Proxy.revocable(fixture('session.started'), {});
+    revoked.revoke();
+    candidates.push(revoked.proxy);
+    for (const candidate of candidates) {
+      let result: ReturnType<typeof validateEvent> | undefined;
+      expect(() => {
+        result = validateEvent(candidate);
+      }).not.toThrow();
+      expect(result?.status).toBe('rejected');
+      expect(JSON.stringify(result)).not.toContain(canary);
+      expect(() => isCoreEvent(candidate)).not.toThrow();
+      expect(isCoreEvent(candidate)).toBe(false);
+    }
+  });
+
+  it('does not accept missing required fields from hostile prototype pollution', () => {
+    const originalVersion = Reflect.getOwnPropertyDescriptor(Object.prototype, 'version');
+    const canary = 'PROTOTYPE-POLLUTION-CANARY';
+    const restore = (property: string, descriptor: PropertyDescriptor | undefined): void => {
+      if (descriptor === undefined) Reflect.deleteProperty(Object.prototype, property);
+      else Object.defineProperty(Object.prototype, property, descriptor);
+    };
+    try {
+      const target = fixture('session.started');
+      delete target.version;
+      const exactAttack = new Proxy(target, {
+        getPrototypeOf(object) {
+          Object.defineProperty(Object.prototype, 'version', {
+            configurable: true,
+            value: '1.0.0',
+          });
+          return Reflect.getPrototypeOf(object);
+        },
+      });
+      const exactResult = validateEvent(exactAttack);
+      expect(exactResult).toMatchObject({
+        status: 'rejected',
+        diagnostics: [{ code: 'invalid-version', field: 'version' }],
+      });
+      expect(exactResult.diagnostics.length).toBeLessThanOrEqual(2);
+      expect(JSON.stringify(exactResult)).not.toContain(canary);
+    } finally {
+      restore('version', originalVersion);
+    }
+
+    const cases: Array<{
+      property: string;
+      remove: (event: Record<string, unknown>) => void;
+      inherited: unknown;
+    }> = [
+      { property: 'spec', remove: (event) => delete event.spec, inherited: protocolId },
+      { property: 'eventId', remove: (event) => delete event.eventId, inherited: 'event-1' },
+      { property: 'type', remove: (event) => delete event.type, inherited: 'session.started' },
+      {
+        property: 'occurredAt',
+        remove: (event) => delete event.occurredAt,
+        inherited: '2026-08-15T14:22:31.120Z',
+      },
+      {
+        property: 'observedAt',
+        remove: (event) => delete event.observedAt,
+        inherited: '2026-08-15T14:22:31.127Z',
+      },
+      { property: 'sequence', remove: (event) => delete event.sequence, inherited: 1 },
+      {
+        property: 'source',
+        remove: (event) => delete event.source,
+        inherited: fixture('session.started').source,
+      },
+      {
+        property: 'scope',
+        remove: (event) => delete event.scope,
+        inherited: fixture('session.started').scope,
+      },
+      { property: 'fidelity', remove: (event) => delete event.fidelity, inherited: 'observed' },
+      { property: 'finality', remove: (event) => delete event.finality, inherited: 'confirmed' },
+      { property: 'data', remove: (event) => delete event.data, inherited: { resume: false } },
+      {
+        property: 'adapterId',
+        remove: (event) => delete (event.source as Record<string, unknown>).adapterId,
+        inherited: 'adapter-1',
+      },
+      {
+        property: 'sessionId',
+        remove: (event) => delete (event.scope as Record<string, unknown>).sessionId,
+        inherited: 'session-1',
+      },
+      {
+        property: 'resume',
+        remove: (event) => delete (event.data as Record<string, unknown>).resume,
+        inherited: false,
+      },
+    ];
+    for (const { property, remove, inherited } of cases) {
+      const original = Reflect.getOwnPropertyDescriptor(Object.prototype, property);
+      try {
+        const target = structuredClone(fixture('session.started')) as Record<string, unknown>;
+        remove(target);
+        const candidate = new Proxy(target, {
+          getPrototypeOf(object) {
+            Object.defineProperty(Object.prototype, property, {
+              configurable: true,
+              value: inherited,
+            });
+            return Reflect.getPrototypeOf(object);
+          },
+        });
+        const result = validateEvent(candidate);
+        expect(result.status, property).toBe('rejected');
+        expect(result.diagnostics.length, property).toBeLessThanOrEqual(2);
+        expect(JSON.stringify(result), property).not.toContain(canary);
+      } finally {
+        restore(property, original);
+      }
+    }
+  });
+
+  it('does not invoke inherited getters after the validation snapshot boundary', () => {
+    const originalVersion = Reflect.getOwnPropertyDescriptor(Object.prototype, 'version');
+    const canary = 'INHERITED-GETTER-CANARY';
+    let getterCalls = 0;
+    try {
+      const target = fixture('session.started');
+      delete target.version;
+      const candidate = new Proxy(target, {
+        getPrototypeOf(object) {
+          Object.defineProperty(Object.prototype, 'version', {
+            configurable: true,
+            get: () => {
+              getterCalls += 1;
+              return canary;
+            },
+          });
+          return Reflect.getPrototypeOf(object);
+        },
+      });
+      const result = validateEvent(candidate);
+      expect(result).toMatchObject({
+        status: 'rejected',
+        diagnostics: [{ code: 'invalid-version', field: 'version' }],
+      });
+      expect(getterCalls).toBe(0);
+      expect(result.diagnostics.length).toBeLessThanOrEqual(2);
+      expect(JSON.stringify(result)).not.toContain(canary);
+    } finally {
+      if (originalVersion === undefined) Reflect.deleteProperty(Object.prototype, 'version');
+      else Object.defineProperty(Object.prototype, 'version', originalVersion);
+    }
+    expect(Reflect.getOwnPropertyDescriptor(Object.prototype, 'version')).toEqual(originalVersion);
+  });
+
+  it('rejects nested non-JSON values, arrays, symbols, cycles, and semantic traps before Ajv', () => {
+    const canary = 'VALIDATE-NESTED-SECRET';
+    const dataWith = (value: unknown): Record<string, unknown> => ({
+      ...fixture('session.started'),
+      data: { resume: false, nested: value },
+    });
+    const sparse = new Array(2);
+    sparse[1] = 'present';
+    const symbolKey: Record<string, unknown> = {};
+    Object.defineProperty(symbolKey, Symbol('hidden'), { enumerable: true, value: canary });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    let nestedGetterCalls = 0;
+    const nestedAccessor: Record<string, unknown> = {};
+    Object.defineProperty(nestedAccessor, 'secret', {
+      enumerable: true,
+      get: () => {
+        nestedGetterCalls += 1;
+        throw new Error(canary);
+      },
+    });
+    const nestedProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error(canary);
+        },
+      },
+    );
+    let stringGetterCalls = 0;
+    const toStringTrap: Record<string, unknown> = {};
+    Object.defineProperty(toStringTrap, 'toString', {
+      enumerable: true,
+      get: () => {
+        stringGetterCalls += 1;
+        throw new Error(canary);
+      },
+    });
+    const primitiveTrap: Record<string | symbol, unknown> = {};
+    Object.defineProperty(primitiveTrap, Symbol.toPrimitive, {
+      enumerable: true,
+      get: () => {
+        throw new Error(canary);
+      },
+    });
+    const speciesTrap: unknown[] = [];
+    Object.defineProperty(speciesTrap, 'constructor', {
+      enumerable: true,
+      get: () => {
+        throw new Error(canary);
+      },
+    });
+    const values: unknown[] = [
+      undefined,
+      NaN,
+      Infinity,
+      -Infinity,
+      1n,
+      Symbol(canary),
+      sparse,
+      symbolKey,
+      cyclic,
+      nestedAccessor,
+      nestedProxy,
+      toStringTrap,
+      primitiveTrap,
+      speciesTrap,
+      new Map([[canary, canary]]),
+    ];
+    for (const value of values) {
+      const result = validateEvent(dataWith(value));
+      expect(result.status).toBe('rejected');
+      expect(JSON.stringify(result)).not.toContain(canary);
+    }
+    expect(nestedGetterCalls).toBe(0);
+    expect(stringGetterCalls).toBe(0);
+
+    const semanticTrap = fixture('task.completed');
+    let semanticGetterCalls = 0;
+    Object.defineProperty(semanticTrap, 'semantic', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        semanticGetterCalls += 1;
+        throw new Error(canary);
+      },
+    });
+    const semanticResult = validateEvent(semanticTrap);
+    expect(semanticResult).toMatchObject({
+      status: 'rejected',
+      diagnostics: [{ code: 'invalid-data', field: 'data' }],
+    });
+    expect(semanticGetterCalls).toBe(0);
+    expect(JSON.stringify(semanticResult)).not.toContain(canary);
+  });
+
+  it('returns detached, recursively frozen core and extension snapshots', () => {
+    const original = structuredClone(fixture('session.started')) as Record<string, unknown> & {
+      future: { nested: string[] };
+    };
+    original.future = { nested: ['preserved'] };
+    const result = validateEvent(original);
+    expect(result.status).toBe('accepted');
+    if (result.status !== 'accepted') return;
+    const safeEvent = result.event as unknown as Record<string, unknown>;
+    const safeFuture = safeEvent.future as { nested: string[] };
+    expect(result.event).not.toBe(original);
+    expect(safeFuture).toEqual(original.future);
+    expect(safeFuture).not.toBe(original.future);
+    expect(Object.isFrozen(result.event)).toBe(true);
+    expect(Object.isFrozen(result.event.data)).toBe(true);
+    expect(Object.isFrozen(safeFuture)).toBe(true);
+    expect(Object.isFrozen(safeFuture.nested)).toBe(true);
+    original.version = '9.0.0';
+    (original.data as Record<string, unknown>).resume = true;
+    original.future.nested[0] = 'MUTATED';
+    expect(result.event.version).toBe('1.0.0');
+    expect((result.event.data as Record<string, unknown>).resume).toBe(false);
+    expect(safeFuture.nested[0]).toBe('preserved');
+    expect(
+      Reflect.set(result.event as unknown as Record<string, unknown>, 'version', '9.0.0'),
+    ).toBe(false);
+
+    const extension = {
+      ...fixture('session.started'),
+      type: 'x.io.example.telemetry',
+      extension: { fallback: 'preserve-in-journal', documentation: 'opaque' },
+      data: { nested: { value: 'opaque' } },
+    };
+    const extensionResult = validateEvent(extension);
+    expect(extensionResult.status).toBe('preserved-extension');
+    if (extensionResult.status !== 'preserved-extension') return;
+    expect(extensionResult.event).not.toBe(extension);
+    expect(Object.isFrozen(extensionResult.event)).toBe(true);
+    expect(Object.isFrozen(extensionResult.event.data)).toBe(true);
+    extension.data.nested.value = 'MUTATED';
+    expect((extensionResult.event.data.nested as { value: string }).value).toBe('opaque');
+    expect(JSON.stringify(extensionResult)).not.toContain('MUTATED');
+  });
+
+  it('returns frozen standard arrays from state and event snapshots', () => {
+    const state = canonicalizeState([1, 2, 3]) as readonly number[];
+    expect(Array.isArray(state)).toBe(true);
+    expect(Object.getPrototypeOf(state)).toBe(Array.prototype);
+    expect(Object.isFrozen(state)).toBe(true);
+    expect([...state]).toEqual([1, 2, 3]);
+    expect(state.map((value) => value * 2)).toEqual([2, 4, 6]);
+    expect([...state.entries()]).toEqual([
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ]);
+    const visited: number[] = [];
+    state.forEach((value) => {
+      visited[visited.length] = value;
+    });
+    expect(visited).toEqual([1, 2, 3]);
+
+    const eventResult = validateEvent(fixture('task.plan.reconciled'));
+    expect(eventResult.status).toBe('accepted');
+    if (eventResult.status !== 'accepted') return;
+    const eventItems = (eventResult.event.data as { readonly items: readonly unknown[] }).items;
+    expect(Array.isArray(eventItems)).toBe(true);
+    expect(Object.getPrototypeOf(eventItems)).toBe(Array.prototype);
+    expect(Object.isFrozen(eventItems)).toBe(true);
+    expect([...eventItems]).toHaveLength(eventItems.length);
+    expect(eventItems.map((item) => item)).toHaveLength(eventItems.length);
+    expect([...eventItems.entries()]).toHaveLength(eventItems.length);
+    let forEachCount = 0;
+    eventItems.forEach(() => {
+      forEachCount += 1;
+    });
+    expect(forEachCount).toBe(eventItems.length);
+
+    const canonicalEvent = canonicalizeEvent(fixture('task.plan.reconciled'));
+    const canonicalItems = (canonicalEvent.data as { readonly items: readonly unknown[] }).items;
+    expect(Array.isArray(canonicalItems)).toBe(true);
+    expect(Object.getPrototypeOf(canonicalItems)).toBe(Array.prototype);
+    expect(Object.isFrozen(canonicalItems)).toBe(true);
+    expect([...canonicalItems]).toHaveLength(canonicalItems.length);
+  });
+
+  it('accepts ordinary and documented null-prototype arrays but rejects custom prototypes safely', () => {
+    class FancyArray<T> extends Array<T> {}
+    const fancy = new FancyArray<number>();
+    fancy.push(1, 2);
+    expect(() => serializeCanonicalState(fancy)).toThrowError(
+      expect.objectContaining({
+        name: 'CanonicalSerializationError',
+        code: 'unsupported-prototype',
+      }),
+    );
+
+    const custom = [1, 2];
+    Object.setPrototypeOf(custom, { custom: true });
+    expect(() => serializeCanonicalState(custom)).toThrowError(
+      expect.objectContaining({
+        name: 'CanonicalSerializationError',
+        code: 'unsupported-prototype',
+      }),
+    );
+
+    const nullPrototype = [1, 2];
+    Object.setPrototypeOf(nullPrototype, null);
+    const normalized = canonicalizeState(nullPrototype) as readonly number[];
+    expect(serializeCanonicalState(nullPrototype)).toBe('[1,2]');
+    expect(Object.getPrototypeOf(normalized)).toBe(Array.prototype);
+    expect(normalized).toEqual([1, 2]);
+
+    const prototypeSecret = 'ARRAY-PROTOTYPE-TRAP-SECRET';
+    const hostile = new Proxy([1, 2], {
+      getPrototypeOf: () => {
+        throw new Error(prototypeSecret);
+      },
+    });
+    try {
+      serializeCanonicalState(hostile);
+      throw new Error('expected hostile array proxy to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect((error as CanonicalSerializationError).code).toBe('invalid-json-value');
+      expect((error as Error).message).not.toContain(prototypeSecret);
+    }
+
+    const revoked = Proxy.revocable([1, 2], {});
+    revoked.revoke();
+    expect(() => serializeCanonicalState(revoked.proxy)).toThrowError(
+      expect.objectContaining({
+        name: 'CanonicalSerializationError',
+        code: 'invalid-json-value',
+      }),
+    );
+  });
+
+  it('does not consult poisoned Array.prototype while snapshotting or writing', () => {
+    const canary = 'ARRAY-PROTOTYPE-CANARY';
+    const pollutedKeys: (string | symbol)[] = [
+      '0',
+      'toJSON',
+      Symbol.iterator,
+      'map',
+      'entries',
+      'forEach',
+      'push',
+      'pop',
+      'sort',
+      'join',
+      'fill',
+      'includes',
+    ];
+    const originalDescriptors: (PropertyDescriptor | undefined)[] = new Array(pollutedKeys.length);
+    for (let index = 0; index < pollutedKeys.length; index += 1) {
+      originalDescriptors[index] = Reflect.getOwnPropertyDescriptor(
+        Array.prototype,
+        pollutedKeys[index] as string | symbol,
+      );
+    }
+
+    let getterCalls = 0;
+    let numericGetterCalls = 0;
+    let numericSetterCalls = 0;
+    let functionCalls = 0;
+    const throwingFunction = (): never => {
+      functionCalls += 1;
+      throw new Error(canary);
+    };
+    const installPoison = (): void => {
+      Object.defineProperty(Array.prototype, '0', {
+        configurable: true,
+        enumerable: false,
+        get: () => {
+          numericGetterCalls += 1;
+          return canary;
+        },
+        set: function (this: object, value: unknown) {
+          numericSetterCalls += 1;
+          void value;
+          Object.defineProperty(this, '0', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: 'INJECTED-SECRET',
+          });
+        },
+      });
+      Object.defineProperty(Array.prototype, 'toJSON', {
+        configurable: true,
+        enumerable: false,
+        get: () => {
+          getterCalls += 1;
+          return throwingFunction;
+        },
+      });
+      Object.defineProperty(Array.prototype, Symbol.iterator, {
+        configurable: true,
+        enumerable: false,
+        get: () => {
+          getterCalls += 1;
+          return throwingFunction;
+        },
+      });
+      const methodNames = [
+        'map',
+        'entries',
+        'forEach',
+        'push',
+        'pop',
+        'sort',
+        'join',
+        'fill',
+        'includes',
+      ];
+      for (let index = 0; index < methodNames.length; index += 1) {
+        Object.defineProperty(Array.prototype, methodNames[index] as string, {
+          configurable: true,
+          enumerable: false,
+          get: () => {
+            getterCalls += 1;
+            return throwingFunction;
+          },
+        });
+      }
+    };
+    const restorePoison = (): void => {
+      for (let index = 0; index < pollutedKeys.length; index += 1) {
+        const key = pollutedKeys[index] as string | symbol;
+        const descriptor = originalDescriptors[index];
+        if (descriptor === undefined) Reflect.deleteProperty(Array.prototype, key);
+        else Object.defineProperty(Array.prototype, key, descriptor);
+      }
+    };
+
+    const baselineEventText = serializeCanonicalEvent(fixture('task.plan.reconciled'));
+    const event = new Proxy(fixture('task.plan.reconciled'), {
+      getPrototypeOf(target) {
+        installPoison();
+        return Reflect.getPrototypeOf(target);
+      },
+    });
+    const state = new Proxy([1, 2, 3], {
+      getPrototypeOf(target) {
+        installPoison();
+        return Reflect.getPrototypeOf(target);
+      },
+    });
+
+    let normalized: readonly number[] | undefined;
+    let resultStatus: ReturnType<typeof validateEvent>['status'] | undefined;
+    let serializedText: string | undefined;
+    let operationError: unknown;
+    try {
+      normalized = canonicalizeState(state) as readonly number[];
+      resultStatus = validateEvent(event).status;
+      serializedText = serializeCanonicalEvent(event);
+    } catch (error) {
+      operationError = error;
+    } finally {
+      restorePoison();
+    }
+
+    expect(operationError).toBeUndefined();
+    expect(normalized).toBeDefined();
+    expect(Array.isArray(normalized)).toBe(true);
+    expect(Object.getPrototypeOf(normalized as object)).toBe(Array.prototype);
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(normalized?.[0]).toBe(1);
+    expect(normalized?.[1]).toBe(2);
+    expect(normalized?.[2]).toBe(3);
+    expect(resultStatus).toBe('accepted');
+    expect(serializedText).toBe(baselineEventText);
+    expect(getterCalls).toBe(0);
+    expect(numericGetterCalls).toBe(0);
+    expect(numericSetterCalls).toBe(0);
+    expect(functionCalls).toBe(0);
+
+    for (let index = 0; index < pollutedKeys.length; index += 1) {
+      expect(
+        Reflect.getOwnPropertyDescriptor(Array.prototype, pollutedKeys[index] as string | symbol),
+      ).toEqual(originalDescriptors[index]);
+    }
+  });
+
+  it('protects direct canonicalizeState array slots from inherited numeric accessors', () => {
+    const original = Reflect.getOwnPropertyDescriptor(Array.prototype, '0');
+    let getterCalls = 0;
+    let setterCalls = 0;
+    const input = [1, 2];
+    try {
+      Object.defineProperty(Array.prototype, '0', {
+        configurable: true,
+        enumerable: false,
+        get: () => {
+          getterCalls += 1;
+          return 'INJECTED-SECRET';
+        },
+        set: function (this: object) {
+          setterCalls += 1;
+          Object.defineProperty(this, '0', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: 'INJECTED-SECRET',
+          });
+        },
+      });
+      const normalized = canonicalizeState(input) as readonly number[];
+      expect(serializeCanonicalState(input)).toBe('[1,2]');
+      expect(normalized[0]).toBe(1);
+      expect(normalized[1]).toBe(2);
+      expect(getterCalls).toBe(0);
+      expect(setterCalls).toBe(0);
+    } finally {
+      if (original === undefined) Reflect.deleteProperty(Array.prototype, '0');
+      else Object.defineProperty(Array.prototype, '0', original);
+    }
+    expect(Reflect.getOwnPropertyDescriptor(Array.prototype, '0')).toEqual(original);
+  });
+
+  it('clones shared acyclic values independently while rejecting actual cycles', () => {
+    const shared = {
+      nested: { value: 'opaque' },
+      list: ['opaque'],
+    };
+    const core = fixture('session.started');
+    core.futureLeft = shared;
+    core.futureRight = shared;
+    const coreResult = validateEvent(core);
+    expect(coreResult.status).toBe('accepted');
+    if (coreResult.status !== 'accepted') return;
+    const safeCore = coreResult.event as unknown as Record<string, unknown>;
+    const left = safeCore.futureLeft as Record<string, unknown>;
+    const right = safeCore.futureRight as Record<string, unknown>;
+    expect(left).not.toBe(right);
+    expect(left).not.toBe(shared);
+    expect(right).not.toBe(shared);
+    expect(left.nested).not.toBe(right.nested);
+    expect(left.list).not.toBe(right.list);
+    expect(Object.getPrototypeOf(left)).toBeNull();
+    expect(Object.getPrototypeOf(left.nested as object)).toBeNull();
+    expect(Object.getPrototypeOf(left.list as object)).toBe(Array.prototype);
+    expect(Object.isFrozen(left)).toBe(true);
+    expect(Object.isFrozen(left.nested)).toBe(true);
+    expect(Object.isFrozen(left.list)).toBe(true);
+
+    shared.nested.value = 'mutated';
+    shared.list[0] = 'mutated';
+    expect((left.nested as Record<string, unknown>).value).toBe('opaque');
+    expect((left.list as string[])[0]).toBe('opaque');
+    expect(Reflect.set(left.nested as Record<string, unknown>, 'value', 'attacker-mutation')).toBe(
+      false,
+    );
+
+    const extensionShared = { nested: { value: 'preserved' } };
+    const extension = {
+      ...fixture('session.started'),
+      type: 'x.io.example.telemetry',
+      extension: { fallback: 'preserve-in-journal', documentation: 'opaque' },
+      data: { left: extensionShared, right: extensionShared },
+    };
+    const extensionResult = validateEvent(extension);
+    expect(extensionResult.status).toBe('preserved-extension');
+    if (extensionResult.status !== 'preserved-extension') return;
+    const safeExtension = extensionResult.event.data as Record<string, unknown>;
+    const extensionLeft = safeExtension.left as Record<string, unknown>;
+    const extensionRight = safeExtension.right as Record<string, unknown>;
+    expect(extensionLeft).not.toBe(extensionRight);
+    expect(extensionLeft).not.toBe(extensionShared);
+    expect(Object.getPrototypeOf(extensionLeft)).toBeNull();
+    expect(Object.getPrototypeOf(extensionLeft.nested as object)).toBeNull();
+    expect(Object.isFrozen(extensionResult.event)).toBe(true);
+    expect(Object.isFrozen(extensionResult.event.data)).toBe(true);
+    expect(Object.isFrozen(extensionLeft)).toBe(true);
+    expect(Object.isFrozen(extensionLeft.nested)).toBe(true);
+
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const cyclicEvent = fixture('session.started');
+    cyclicEvent.future = cyclic;
+    const cyclicResult = validateEvent(cyclicEvent);
+    expect(cyclicResult).toMatchObject({ status: 'rejected' });
+    expect(cyclicResult.diagnostics.length).toBeLessThanOrEqual(2);
+  });
+
+  it('preserves own __proto__ data keys without changing detached prototypes', () => {
+    const event = fixture('session.started');
+    const ownProtoValue = { marker: 'opaque' };
+    Object.defineProperty(event, '__proto__', {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: ownProtoValue,
+    });
+    const result = validateEvent(event);
+    expect(result.status).toBe('accepted');
+    if (result.status !== 'accepted') return;
+    const safeEvent = result.event as unknown as Record<string, unknown>;
+    expect(Object.getPrototypeOf(safeEvent)).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(safeEvent, '__proto__')).toBe(true);
+    expect(safeEvent['__proto__']).not.toBe(Object.prototype);
+    expect(Object.getPrototypeOf(safeEvent['__proto__'] as object)).toBeNull();
+    expect((safeEvent['__proto__'] as Record<string, unknown>).marker).toBe('opaque');
+  });
+
+  it('canonicalizes nested keys, escaping, non-ASCII text, and negative zero', () => {
+    const value = {
+      z: { beta: -0, alpha: 'café' },
+      a: ['second', 'first'],
+      controls: '\u0000\n\t"\\',
+      numericKeys: { '2': 'two', '10': 'ten' },
+    };
+    const serialized = serializeCanonicalState(value);
+    expect(serialized).toBe(
+      String.raw`{"a":["second","first"],"controls":"\u0000\n\t\"\\","numericKeys":{"10":"ten","2":"two"},"z":{"alpha":"café","beta":0}}`,
+    );
+    const normalized = canonicalizeState(value) as Record<string, unknown>;
+    expect(Object.is((normalized.z as Record<string, unknown>).beta, -0)).toBe(false);
+    expect((normalized.z as Record<string, unknown>).beta).toBe(0);
+    expect(new TextDecoder().decode(encodeCanonicalState(value))).toBe(serialized);
+  });
+
+  it('returns frozen null-prototype canonical state with detached shared values', () => {
+    const shared = { nested: { value: 'opaque' } };
+    const value = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(value, '__proto__', {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: { marker: 'own-data' },
+    });
+    value.left = shared;
+    value.right = shared;
+
+    const normalized = canonicalizeState(value) as Record<string, unknown>;
+    const left = normalized.left as Record<string, unknown>;
+    const right = normalized.right as Record<string, unknown>;
+    expect(Object.getPrototypeOf(normalized)).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(normalized, '__proto__')).toBe(true);
+    expect((normalized['__proto__'] as Record<string, unknown>).marker).toBe('own-data');
+    expect(Object.getPrototypeOf(normalized['__proto__'] as object)).toBeNull();
+    expect(left).not.toBe(right);
+    expect(left).not.toBe(shared);
+    expect(Object.getPrototypeOf(left)).toBeNull();
+    expect(Object.getPrototypeOf(left.nested as object)).toBeNull();
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(Object.isFrozen(left)).toBe(true);
+    expect(Object.isFrozen(left.nested)).toBe(true);
+    expect(Reflect.set(left.nested as Record<string, unknown>, 'value', 'attacker-mutation')).toBe(
+      false,
+    );
+    expect(serializeCanonicalState(value)).toBe(
+      '{"__proto__":{"marker":"own-data"},"left":{"nested":{"value":"opaque"}},"right":{"nested":{"value":"opaque"}}}',
+    );
+  });
+
+  it('produces identical event text and UTF-8 bytes regardless of object insertion order', () => {
+    const reverseKeys = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(reverseKeys);
+      if (value !== null && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>)
+            .reverse()
+            .map(([key, child]) => [key, reverseKeys(child)]),
+        );
+      }
+      return value;
+    };
+    const original = fixture('session.started');
+    const reordered = reverseKeys(original);
+    const originalText = serializeCanonicalEvent(original);
+    const reorderedText = serializeCanonicalEvent(reordered);
+    expect(reorderedText).toBe(originalText);
+    expect(Array.from(encodeCanonicalEvent(reordered))).toEqual(
+      Array.from(encodeCanonicalEvent(original)),
+    );
+  });
+
+  it('sorts only explicitly identified entity collections and uses code-unit ID order', () => {
+    const value = {
+      tasks: [
+        { id: 'z', label: 'last' },
+        { id: 'ä', label: 'non-ascii' },
+        { id: 'a', label: 'first' },
+      ],
+      ordinary: [{ id: 'b' }, { id: 'a' }],
+    };
+    const options = { entityCollections: [{ path: ['tasks'], idKey: 'id' }] } as const;
+    expect(serializeCanonicalState(value, options)).toBe(
+      '{"ordinary":[{"id":"b"},{"id":"a"}],"tasks":[{"id":"a","label":"first"},{"id":"z","label":"last"},{"id":"ä","label":"non-ascii"}]}',
+    );
+    expect(serializeCanonicalState(value)).toBe(
+      '{"ordinary":[{"id":"b"},{"id":"a"}],"tasks":[{"id":"z","label":"last"},{"id":"ä","label":"non-ascii"},{"id":"a","label":"first"}]}',
+    );
+    expect(
+      serializeCanonicalState([{ id: 'b' }, { id: 'a' }], {
+        entityCollections: [{ path: [], idKey: 'id' }],
+      }),
+    ).toBe('[{"id":"a"},{"id":"b"}]');
+  });
+
+  it('rejects duplicate, missing, invalid, and incorrectly located entity IDs', () => {
+    const codeFor = (work: () => unknown): CanonicalSerializationError['code'] => {
+      try {
+        work();
+      } catch (error) {
+        expect(error).toBeInstanceOf(CanonicalSerializationError);
+        return (error as CanonicalSerializationError).code;
+      }
+      throw new Error('expected canonical serialization to fail');
+    };
+    const options = { entityCollections: [{ path: ['tasks'], idKey: 'id' }] } as const;
+    expect(
+      codeFor(() => serializeCanonicalState({ tasks: [{ id: 'a' }, { id: 'a' }] }, options)),
+    ).toBe('duplicate-entity-id');
+    expect(codeFor(() => serializeCanonicalState({ tasks: [{ label: 'missing' }] }, options))).toBe(
+      'missing-entity-id',
+    );
+    expect(codeFor(() => serializeCanonicalState({ tasks: [{ id: 1 }] }, options))).toBe(
+      'invalid-entity-id',
+    );
+    expect(codeFor(() => serializeCanonicalState({ tasks: [{ id: '' }] }, options))).toBe(
+      'invalid-entity-id',
+    );
+    expect(codeFor(() => serializeCanonicalState({ tasks: { a: { id: 'a' } } }, options))).toBe(
+      'entity-collection-not-array',
+    );
+    expect(codeFor(() => serializeCanonicalState({}, options))).toBe('entity-collection-path');
+    expect(
+      codeFor(() =>
+        serializeCanonicalState({ tasks: [{ id: 'SECRET-ID' }, { id: 'SECRET-ID' }] }, options),
+      ),
+    ).toBe('duplicate-entity-id');
+    try {
+      serializeCanonicalState({ tasks: [{ id: 'SECRET-ID' }, { id: 'SECRET-ID' }] }, options);
+    } catch (error) {
+      expect((error as Error).message).not.toContain('SECRET-ID');
+    }
+  });
+
+  it('rejects all non-JSON values, unsupported instances, accessors, symbols, cycles, and holes', () => {
+    const codeFor = (value: unknown): CanonicalSerializationError['code'] => {
+      try {
+        serializeCanonicalState(value);
+      } catch (error) {
+        expect(error).toBeInstanceOf(CanonicalSerializationError);
+        return (error as CanonicalSerializationError).code;
+      }
+      throw new Error('expected canonical serialization to fail');
+    };
+    for (const value of [undefined, () => 'secret', Symbol('secret'), 1n, NaN, Infinity, -Infinity])
+      expect(codeFor(value)).toBe('invalid-json-value');
+    expect(codeFor({ nested: { invalid: NaN } })).toBe('invalid-json-value');
+    expect(codeFor(new Date())).toBe('unsupported-prototype');
+    expect(codeFor(new Map())).toBe('unsupported-prototype');
+    expect(codeFor(new Set())).toBe('unsupported-prototype');
+    expect(codeFor(/pattern/)).toBe('unsupported-prototype');
+    expect(codeFor(new Number(1))).toBe('unsupported-prototype');
+    expect(codeFor(Object.create({ inherited: true }))).toBe('unsupported-prototype');
+
+    const sparse = new Array(2);
+    sparse[1] = 'present';
+    expect(codeFor(sparse)).toBe('sparse-array');
+
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(codeFor(cyclic)).toBe('cycle');
+
+    const symbolKey: Record<string, unknown> = {};
+    Object.defineProperty(symbolKey, Symbol('hidden'), { enumerable: true, value: 'secret' });
+    expect(codeFor(symbolKey)).toBe('invalid-json-value');
+
+    const accessor: Record<string, unknown> = {};
+    Object.defineProperty(accessor, 'value', {
+      enumerable: true,
+      get: () => 'secret',
+    });
+    expect(codeFor(accessor)).toBe('accessor-property');
+
+    const hidden: Record<string, unknown> = {};
+    Object.defineProperty(hidden, 'value', { enumerable: false, value: undefined });
+    expect(codeFor(hidden)).toBe('unsupported-property');
+  });
+
+  it('rejects quarantined, extension-preserved, invalid, and non-JSON core events', () => {
+    const codeFor = (event: unknown): CanonicalSerializationError['code'] => {
+      try {
+        serializeCanonicalEvent(event);
+      } catch (error) {
+        expect(error).toBeInstanceOf(CanonicalSerializationError);
+        return (error as CanonicalSerializationError).code;
+      }
+      throw new Error('expected event serialization to fail');
+    };
+    expect(codeFor({ ...fixture('session.started'), version: '9.0.0' })).toBe('event-quarantined');
+    expect(
+      codeFor({
+        ...fixture('session.started'),
+        type: 'x.io.example.telemetry',
+        extension: { fallback: 'preserve-in-journal', documentation: 'opaque' },
+        data: { value: 'opaque' },
+      }),
+    ).toBe('event-extension-not-supported');
+    expect(
+      codeFor({
+        ...fixture('task.created'),
+        scope: { workspaceId: 'workspace-1', sessionId: 'session-1' },
+      }),
+    ).toBe('event-not-accepted');
+    const rejectedWithUnknownFunction = { ...fixture('session.started'), future: () => 'secret' };
+    expect(validateEvent(rejectedWithUnknownFunction).status).toBe('rejected');
+    expect(codeFor(rejectedWithUnknownFunction)).toBe('event-not-accepted');
+  });
+
+  it('validates and serializes the exact descriptor snapshot after a re-entrant version mutation', () => {
+    const target = fixture('session.started');
+    let descriptorReads = 0;
+    const event = new Proxy(target, {
+      getOwnPropertyDescriptor(object, property) {
+        if (property === 'version') {
+          descriptorReads += 1;
+          const descriptor = Reflect.getOwnPropertyDescriptor(object, property);
+          object.version = '9.0.0';
+          return descriptor;
+        }
+        return Reflect.getOwnPropertyDescriptor(object, property);
+      },
+    });
+    const result = validateEvent(event);
+    expect(descriptorReads).toBe(1);
+    expect(result).toMatchObject({ status: 'accepted' });
+    if (result.status !== 'accepted') return;
+    expect(result.event.version).toBe('1.0.0');
+    expect(target.version).toBe('9.0.0');
+    expect(serializeCanonicalEvent(result.event)).toContain('"version":"1.0.0"');
+    expect(JSON.stringify(result)).not.toContain('9.0.0');
+  });
+
+  it('turns revoked proxies, throwing traps, and getters into canonical errors without leakage', () => {
+    const revoked = Proxy.revocable({ secret: 'REVOKED-SECRET' }, {});
+    revoked.revoke();
+    for (const operation of [
+      () => canonicalizeState(revoked.proxy),
+      () => serializeCanonicalState(revoked.proxy),
+      () => encodeCanonicalState(revoked.proxy),
+    ]) {
+      expect(() => operation()).toThrow(CanonicalSerializationError);
+    }
+    const revokedEvent = Proxy.revocable(fixture('session.started'), {});
+    revokedEvent.revoke();
+    for (const operation of [
+      () => canonicalizeEvent(revokedEvent.proxy),
+      () => serializeCanonicalEvent(revokedEvent.proxy),
+      () => encodeCanonicalEvent(revokedEvent.proxy),
+    ]) {
+      expect(() => operation()).toThrow(CanonicalSerializationError);
+    }
+
+    const trapSecret = 'TRAP-SECRET-ERROR';
+    const throwingProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error(trapSecret);
+        },
+      },
+    );
+    try {
+      serializeCanonicalState(throwingProxy);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect((error as Error).message).not.toContain(trapSecret);
+    }
+
+    const accessorSecret = 'ACCESSOR-SECRET-ERROR';
+    const accessor = {};
+    Object.defineProperty(accessor, 'secret', {
+      enumerable: true,
+      get: () => {
+        throw new Error(accessorSecret);
+      },
+    });
+    try {
+      serializeCanonicalState(accessor);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect((error as Error).message).not.toContain(accessorSecret);
+    }
+
+    const optionSecret = 'OPTION-TRAP-SECRET';
+    const pathProxy = new Proxy(['tasks'], {
+      getOwnPropertyDescriptor: () => {
+        throw new Error(optionSecret);
+      },
+    });
+    try {
+      serializeCanonicalState({ tasks: [{ id: 'a' }] }, {
+        entityCollections: [{ path: pathProxy, idKey: 'id' }],
+      } as never);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect((error as Error).message).not.toContain(optionSecret);
+    }
+  });
+
+  it('does not trust exported, subclassed, or copied errors at state and event boundaries', () => {
+    const secret = 'TRAP-CANONICAL-INSTANCE-SECRET';
+    const attackerCode = 'attacker-code' as unknown as CanonicalSerializationError['code'];
+    const makeBaseError = (): CanonicalSerializationError => {
+      const error = new CanonicalSerializationError(attackerCode, secret);
+      Object.defineProperty(error, 'cause', { configurable: true, value: 'CAUSE-SECRET' });
+      Object.defineProperty(error, 'stack', { configurable: true, value: 'STACK-SECRET' });
+      return error;
+    };
+    class ExportedErrorSubclass extends CanonicalSerializationError {}
+    const makeSubclassError = (): CanonicalSerializationError =>
+      new ExportedErrorSubclass(attackerCode, secret);
+    const makeCopiedShapeError = (): CanonicalSerializationError => {
+      const error = Object.create(
+        CanonicalSerializationError.prototype,
+      ) as CanonicalSerializationError;
+      Object.defineProperties(error, {
+        code: { configurable: true, value: attackerCode },
+        path: { configurable: true, value: secret },
+        message: { configurable: true, value: 'MESSAGE-SECRET' },
+        cause: { configurable: true, value: 'CAUSE-SECRET' },
+        stack: { configurable: true, value: 'STACK-SECRET' },
+      });
+      return error;
+    };
+    const capture = (work: () => unknown): unknown => {
+      try {
+        work();
+      } catch (error) {
+        return error;
+      }
+      throw new Error('expected canonical serialization to fail');
+    };
+    const assertSanitized = (
+      work: () => unknown,
+      expectedCode: CanonicalSerializationError['code'],
+      attackerError?: unknown,
+    ): void => {
+      const caught = capture(work);
+      expect(caught).toBeInstanceOf(CanonicalSerializationError);
+      if (attackerError !== undefined) expect(caught).not.toBe(attackerError);
+      const error = caught as CanonicalSerializationError;
+      expect(error.code).toBe(expectedCode);
+      expect(error.path?.length ?? 0).toBeLessThanOrEqual(128);
+      expect(error.message).not.toContain(secret);
+      expect(error.message).not.toContain('MESSAGE-SECRET');
+      expect(error.message).not.toContain('CAUSE-SECRET');
+      expect(error.message).not.toContain('STACK-SECRET');
+      expect(error.path).not.toContain(secret);
+      expect(error.stack).not.toContain('STACK-SECRET');
+      expect((error as Error & { cause?: unknown }).cause).toBeUndefined();
+    };
+    const stateOperations = [
+      (value: unknown, options?: unknown) => canonicalizeState(value, options as never),
+      (value: unknown, options?: unknown) => serializeCanonicalState(value, options as never),
+      (value: unknown, options?: unknown) => encodeCanonicalState(value, options as never),
+    ];
+    const eventOperations = [
+      (value: unknown) => canonicalizeEvent(value),
+      (value: unknown) => serializeCanonicalEvent(value),
+      (value: unknown) => encodeCanonicalEvent(value),
+    ];
+    const stateWithOwnKeysTrap = (error: unknown): unknown =>
+      new Proxy(
+        {},
+        {
+          ownKeys: () => {
+            throw error;
+          },
+        },
+      );
+    const eventWithOwnKeysTrap = (error: unknown): unknown =>
+      new Proxy(fixture('session.started'), {
+        ownKeys: () => {
+          throw error;
+        },
+      });
+    for (const makeError of [makeBaseError, makeSubclassError, makeCopiedShapeError]) {
+      const attackerError = makeError();
+      for (const operation of stateOperations)
+        assertSanitized(
+          () => operation(stateWithOwnKeysTrap(attackerError)),
+          'invalid-json-value',
+          attackerError,
+        );
+      for (const operation of eventOperations)
+        assertSanitized(
+          () => operation(eventWithOwnKeysTrap(attackerError)),
+          'event-not-accepted',
+          attackerError,
+        );
+
+      const pathTraps = [
+        (error: unknown) =>
+          new Proxy(['tasks'], {
+            ownKeys: () => {
+              throw error;
+            },
+          }),
+        (error: unknown) =>
+          new Proxy(['tasks'], {
+            getOwnPropertyDescriptor: () => {
+              throw error;
+            },
+          }),
+      ];
+      for (const makePath of pathTraps) {
+        const options = { entityCollections: [{ path: makePath(attackerError), idKey: 'id' }] };
+        for (const operation of stateOperations)
+          assertSanitized(
+            () => operation({ tasks: [] }, options),
+            'invalid-options',
+            attackerError,
+          );
+      }
+    }
+
+    const revokedState = Proxy.revocable({}, {});
+    revokedState.revoke();
+    for (const operation of stateOperations)
+      assertSanitized(() => operation(revokedState.proxy), 'invalid-json-value');
+    const revokedEvent = Proxy.revocable(fixture('session.started'), {});
+    revokedEvent.revoke();
+    for (const operation of eventOperations)
+      assertSanitized(() => operation(revokedEvent.proxy), 'event-not-accepted');
+  });
+
+  it('retains only genuine internal errors with stable, frozen public fields', () => {
+    const stateOperations = [
+      () => canonicalizeState({ invalid: NaN }),
+      () => serializeCanonicalState({ invalid: NaN }),
+      () => encodeCanonicalState({ invalid: NaN }),
+    ];
+    for (const operation of stateOperations) {
+      const caught = (() => {
+        try {
+          operation();
+        } catch (error) {
+          return error;
+        }
+        throw new Error('expected canonical serialization to fail');
+      })();
+      expect(caught).toBeInstanceOf(CanonicalSerializationError);
+      expect((caught as CanonicalSerializationError).code).toBe('invalid-json-value');
+      expect((caught as CanonicalSerializationError).path).toBe('$.object');
+      expect(Object.isFrozen(caught)).toBe(true);
+      expect((caught as Error & { cause?: unknown }).cause).toBeUndefined();
+    }
+
+    const quarantined = { ...fixture('session.started'), version: '9.0.0' };
+    const eventOperations = [
+      () => canonicalizeEvent(quarantined),
+      () => serializeCanonicalEvent(quarantined),
+      () => encodeCanonicalEvent(quarantined),
+    ];
+    for (const operation of eventOperations) {
+      const caught = (() => {
+        try {
+          operation();
+        } catch (error) {
+          return error;
+        }
+        throw new Error('expected canonical event serialization to fail');
+      })();
+      expect(caught).toBeInstanceOf(CanonicalSerializationError);
+      expect((caught as CanonicalSerializationError).code).toBe('event-quarantined');
+      expect((caught as CanonicalSerializationError).path).toBe('$');
+      expect(Object.isFrozen(caught)).toBe(true);
+    }
+  });
+
+  it('sanitizes malicious errors from JSON and UTF-8 writer boundaries', () => {
+    const secret = 'WRITER-CANONICAL-INSTANCE-SECRET';
+    const attackerError = new CanonicalSerializationError(
+      'writer-attacker-code' as unknown as CanonicalSerializationError['code'],
+      secret,
+    );
+    const originalStringify = JSON.stringify;
+    JSON.stringify = (() => {
+      throw attackerError;
+    }) as typeof JSON.stringify;
+    let stateError: unknown;
+    try {
+      try {
+        serializeCanonicalState('safe');
+      } catch (error) {
+        stateError = error;
+      }
+    } finally {
+      JSON.stringify = originalStringify;
+    }
+    expect(stateError).toBeInstanceOf(CanonicalSerializationError);
+    expect((stateError as CanonicalSerializationError).code).toBe('serialization-failed');
+    expect(stateError).not.toBe(attackerError);
+    expect((stateError as Error).message).not.toContain(secret);
+
+    const originalTextEncoder = globalThis.TextEncoder;
+    Object.defineProperty(globalThis, 'TextEncoder', {
+      configurable: true,
+      writable: true,
+      value: class {
+        encode(): never {
+          throw attackerError;
+        }
+      },
+    });
+    const encodedErrors: unknown[] = [];
+    try {
+      for (const operation of [
+        () => encodeCanonicalState({ safe: 'value' }),
+        () => encodeCanonicalEvent(fixture('session.started')),
+      ]) {
+        try {
+          operation();
+        } catch (error) {
+          encodedErrors.push(error);
+        }
+      }
+    } finally {
+      Object.defineProperty(globalThis, 'TextEncoder', {
+        configurable: true,
+        writable: true,
+        value: originalTextEncoder,
+      });
+    }
+    expect(encodedErrors).toHaveLength(2);
+    expect(encodedErrors[0]).toBeInstanceOf(CanonicalSerializationError);
+    expect((encodedErrors[0] as CanonicalSerializationError).code).toBe('serialization-failed');
+    expect(encodedErrors[1]).toBeInstanceOf(CanonicalSerializationError);
+    expect((encodedErrors[1] as CanonicalSerializationError).code).toBe('event-not-accepted');
+    for (const error of encodedErrors) {
+      expect(error).not.toBe(attackerError);
+      expect((error as Error).message).not.toContain(secret);
+    }
+  });
+
+  it('does not echo attacker-controlled keys, IDs, paths, or idKey values', () => {
+    const secretKey = 'ATTACKER-PROPERTY-SECRET';
+    const secretId = 'ATTACKER-ID-SECRET';
+    const secretPath = 'ATTACKER-PATH-SECRET';
+    const secretIdKey = 'ATTACKER-IDKEY-SECRET';
+    const failures = [
+      () => serializeCanonicalState({ [secretKey]: NaN }),
+      () =>
+        serializeCanonicalState(
+          { [secretPath]: [] },
+          { entityCollections: [{ path: [secretPath], idKey: secretIdKey }] },
+        ),
+      () =>
+        serializeCanonicalState(
+          { tasks: [{ [secretIdKey]: secretId }, { [secretIdKey]: secretId }] },
+          { entityCollections: [{ path: ['tasks'], idKey: secretIdKey }] },
+        ),
+    ];
+    for (const failure of failures) {
+      try {
+        failure();
+      } catch (error) {
+        expect(error).toBeInstanceOf(CanonicalSerializationError);
+        const message = (error as Error).message;
+        expect(message).not.toContain(secretKey);
+        expect(message).not.toContain(secretId);
+        expect(message).not.toContain(secretPath);
+        expect(message).not.toContain(secretIdKey);
+      }
+    }
+  });
+
+  it('bounds deep and oversized state without exposing RangeError or allocating unbounded output', () => {
+    let deeplyNested: unknown = false;
+    for (let index = 0; index < 20_000; index += 1) deeplyNested = { nested: deeplyNested };
+    try {
+      serializeCanonicalState(deeplyNested);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect((error as CanonicalSerializationError).code).toBe('state-too-deep');
+      expect(error).not.toBeInstanceOf(RangeError);
+    }
+    const oversized = new Array(MAX_CANONICAL_ARRAY_LENGTH + 1).fill(null);
+    try {
+      serializeCanonicalState(oversized);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect(error).not.toBeInstanceOf(RangeError);
+    }
+    expect(MAX_CANONICAL_STATE_DEPTH).toBeGreaterThan(12);
+  });
+
+  it('reports container-limit failures without leaking internal exceptions', () => {
+    const values: Record<string, unknown>[] = new Array(MAX_CANONICAL_STATE_CONTAINERS);
+    for (let index = 0; index < values.length; index += 1) values[index] = {};
+    try {
+      canonicalizeState(values);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanonicalSerializationError);
+      expect((error as CanonicalSerializationError).code).toBe('state-too-many-containers');
+      expect(error).not.toBeInstanceOf(RangeError);
+      return;
+    }
+    throw new Error('expected the canonical container limit to fail');
+  });
+
+  it('accounts for object-key material before canonical output allocation and enforces UTF-8 bounds', () => {
+    const keyHeavy: Record<string, string> = {};
+    for (let index = 0; index < 200; index += 1)
+      keyHeavy[`${String(index).padStart(3, '0')}-${'k'.repeat(7_990)}`] = 'v';
+    expect(() => serializeCanonicalState(keyHeavy)).toThrowError(
+      expect.objectContaining({
+        name: 'CanonicalSerializationError',
+        code: 'state-too-large',
+      }),
+    );
+
+    const nonAscii = 'é'.repeat(16_384);
+    const belowByteLimit = new Array<string>(31);
+    for (let index = 0; index < belowByteLimit.length; index += 1) belowByteLimit[index] = nonAscii;
+    expect(serializeCanonicalState(belowByteLimit).length).toBeGreaterThan(0);
+
+    const aboveByteLimit = new Array<string>(32);
+    for (let index = 0; index < aboveByteLimit.length; index += 1) aboveByteLimit[index] = nonAscii;
+    expect(() => serializeCanonicalState(aboveByteLimit)).toThrowError(
+      expect.objectContaining({
+        name: 'CanonicalSerializationError',
+        code: 'state-too-large',
+      }),
+    );
+    expect(MAX_CANONICAL_STATE_BYTES).toBe(1_048_576);
+  });
+
+  it('rejects accessor and structurally invalid options instead of treating them as absent', () => {
+    const accessorOptions: Record<string, unknown> = {};
+    Object.defineProperty(accessorOptions, 'entityCollections', {
+      enumerable: true,
+      get: () => [],
+    });
+    expect(() => serializeCanonicalState({}, accessorOptions as never)).toThrow(
+      CanonicalSerializationError,
+    );
+
+    const extra = { entityCollections: [], extra: true };
+    expect(() => serializeCanonicalState({}, extra as never)).toThrow(CanonicalSerializationError);
+    const nonEnumerable: Record<string, unknown> = { entityCollections: [] };
+    Object.defineProperty(nonEnumerable, 'hidden', { value: true, enumerable: false });
+    expect(() => serializeCanonicalState({}, nonEnumerable as never)).toThrow(
+      CanonicalSerializationError,
+    );
+    expect(() =>
+      serializeCanonicalState({}, { entityCollections: [new Array(1)] } as never),
+    ).toThrow(CanonicalSerializationError);
+  });
+
+  it('supports nested entity collections through arrays while preserving ordinary array order', () => {
+    const value = {
+      groups: [
+        {
+          id: 'group-b',
+          tasks: [{ id: 'task-z' }, { id: 'task-a' }],
+        },
+        {
+          id: 'group-a',
+          tasks: [{ id: 'task-y' }, { id: 'task-b' }],
+        },
+      ],
+      ordinary: [{ id: 'ordinary-b' }, { id: 'ordinary-a' }],
+    };
+    const wildcardOptions = {
+      entityCollections: [
+        { path: ['groups'], idKey: 'id' },
+        { path: ['groups', { each: true }, 'tasks'], idKey: 'id' },
+      ],
+    } as const;
+    expect(serializeCanonicalState(value, wildcardOptions)).toBe(
+      '{"groups":[{"id":"group-a","tasks":[{"id":"task-b"},{"id":"task-y"}]},{"id":"group-b","tasks":[{"id":"task-a"},{"id":"task-z"}]}],"ordinary":[{"id":"ordinary-b"},{"id":"ordinary-a"}]}',
+    );
+
+    const indexedOptions = {
+      entityCollections: [{ path: ['groups', 0, 'tasks'], idKey: 'id' }],
+    } as const;
+    expect(serializeCanonicalState(value, indexedOptions)).toBe(
+      '{"groups":[{"id":"group-b","tasks":[{"id":"task-a"},{"id":"task-z"}]},{"id":"group-a","tasks":[{"id":"task-y"},{"id":"task-b"}]}],"ordinary":[{"id":"ordinary-b"},{"id":"ordinary-a"}]}',
+    );
+  });
+
+  it('distinguishes path collisions, rejects duplicates and unmatched paths, and keeps arrays explicit', () => {
+    const value = {
+      '0': [{ id: 'property-b' }, { id: 'property-a' }],
+      arrays: [
+        [{ id: 'index-b' }, { id: 'index-a' }],
+        [{ id: 'ordinary-b' }, { id: 'ordinary-a' }],
+      ],
+    };
+    expect(
+      serializeCanonicalState(value, { entityCollections: [{ path: ['0'], idKey: 'id' }] }),
+    ).toContain('"0":[{"id":"property-a"},{"id":"property-b"}]');
+    expect(
+      serializeCanonicalState(value, {
+        entityCollections: [{ path: ['arrays', 0], idKey: 'id' }],
+      }),
+    ).toContain(
+      '"arrays":[[{"id":"index-a"},{"id":"index-b"}],[{"id":"ordinary-b"},{"id":"ordinary-a"}]]',
+    );
+    expect(() =>
+      serializeCanonicalState(value, { entityCollections: [{ path: [0], idKey: 'id' }] }),
+    ).toThrow(CanonicalSerializationError);
+    expect(() =>
+      serializeCanonicalState(value, {
+        entityCollections: [
+          { path: ['arrays', 0], idKey: 'id' },
+          { path: ['arrays', 0], idKey: 'other' },
+        ],
+      }),
+    ).toThrow(CanonicalSerializationError);
+    expect(() =>
+      serializeCanonicalState(value, {
+        entityCollections: [{ path: ['missing'], idKey: 'id' }],
+      }),
+    ).toThrow(CanonicalSerializationError);
+  });
+
+  it('uses deterministic UTF-16 key order and well-formed escaping for astral and lone surrogates', () => {
+    const value = { '\uD800': 'lone', z: '😀', a: '\uDC00', '10': 'ten', '2': 'two' };
+    const text = serializeCanonicalState(value);
+    expect(text).toBe('{"10":"ten","2":"two","a":"\\udc00","z":"😀","\\ud800":"lone"}');
+    expect(Array.from(encodeCanonicalState(value))).toEqual(
+      Array.from(new TextEncoder().encode(text)),
+    );
+    const normalized = canonicalizeState({ '2': 'two', '10': 'ten' }) as Record<string, unknown>;
+    expect(Object.keys(normalized)).toEqual(['2', '10']);
+    expect(serializeCanonicalState(normalized)).toBe('{"10":"ten","2":"two"}');
+  });
+
+  it('imports without Array.prototype map or iterator hooks and validates extensions after pollution', async () => {
+    // @ts-expect-error The root project intentionally does not depend on Node type declarations.
+    const { execFileSync } = await import('node:child_process');
+    const workingDirectory = process.cwd().replace(/\\/g, '/');
+    const repoRoot = workingDirectory.endsWith('/packages/protocol')
+      ? workingDirectory.slice(0, -'/packages/protocol'.length)
+      : workingDirectory;
+    const sourcePath = `${repoRoot}/packages/protocol/src/index.ts`;
+    const childScript = `
+      import { readFileSync } from 'node:fs';
+      import { resolve } from 'node:path';
+      import { pathToFileURL } from 'node:url';
+      const sourcePath = ${JSON.stringify(sourcePath)};
+      const typescript = await import('typescript');
+      const ajvUrl = pathToFileURL(resolve('packages/protocol/node_modules/ajv/dist/2020.js')).href;
+      const formatsUrl = pathToFileURL(resolve('packages/protocol/node_modules/ajv-formats/dist/index.js')).href;
+      await import(ajvUrl);
+      await import(formatsUrl);
+      const source = readFileSync(sourcePath, 'utf8');
+      const javascript = typescript.transpileModule(source, {
+        compilerOptions: {
+          module: typescript.ModuleKind.ESNext,
+          target: typescript.ScriptTarget.ES2023,
+        },
+      }).outputText
+        .replaceAll('ajv/dist/2020.js', ajvUrl)
+        .replaceAll('ajv-formats', formatsUrl);
+      Object.defineProperty(Array.prototype, 'map', {
+        configurable: true,
+        get() { throw new Error('PREIMPORT-MAP-SECRET'); }
+      });
+      Object.defineProperty(Array.prototype, Symbol.iterator, {
+        configurable: true,
+        get() { throw new Error('PREIMPORT-ITERATOR-SECRET'); }
+      });
+      await import('data:text/javascript;charset=utf-8,' + encodeURIComponent(javascript));
+      process.stdout.write('imported');
+    `;
+    const output = execFileSync(
+      process.execPath,
+      ['--experimental-strip-types', '--input-type=module', '-e', childScript],
+      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    expect(output).toBe('imported');
+
+    const extension = {
+      ...fixture('session.started'),
+      type: 'x.io.example.polluted',
+      extension: { fallback: 'preserve-in-journal', documentation: 'opaque' },
+      data: { value: 'opaque' },
+    };
+    const pollutedKeys: (string | symbol)[] = ['map', 'some', Symbol.iterator];
+    const originals: (PropertyDescriptor | undefined)[] = new Array(pollutedKeys.length);
+    for (let index = 0; index < pollutedKeys.length; index += 1)
+      originals[index] = Reflect.getOwnPropertyDescriptor(
+        Array.prototype,
+        pollutedKeys[index] as string | symbol,
+      );
+    try {
+      for (let index = 0; index < pollutedKeys.length; index += 1) {
+        const key = pollutedKeys[index] as string | symbol;
+        Object.defineProperty(Array.prototype, key, {
+          configurable: true,
+          get: () => {
+            throw new Error('POSTIMPORT-ARRAY-SECRET');
+          },
+        });
+      }
+      expect(validateEvent(extension).status).toBe('preserved-extension');
+      expect(opaqueText('safe')).toBe('safe');
+    } finally {
+      for (let index = 0; index < pollutedKeys.length; index += 1) {
+        const key = pollutedKeys[index] as string | symbol;
+        const descriptor = originals[index];
+        if (descriptor === undefined) Reflect.deleteProperty(Array.prototype, key);
+        else Object.defineProperty(Array.prototype, key, descriptor);
+      }
+    }
   });
 });

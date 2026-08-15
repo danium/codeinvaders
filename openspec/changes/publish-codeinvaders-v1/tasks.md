@@ -28,7 +28,7 @@
 - [x] 2.4 Define requested, quiescent, confirmed, failed, denied, cancelled, abandoned, correction, capability-change, and telemetry-gap semantics.
 - [x] 2.5 Define complete revisioned task-plan reconciliation events and prohibit fuzzy identity transfer for terminal task state.
 - [x] 2.6 Define the signal capability model covering evidence, coverage, finality, exclusions, and active-session changes.
-- [ ] 2.7 Implement canonical event and state serialization with stable key and entity ordering.
+- [x] 2.7 Implement canonical event and state serialization with stable key and entity ordering.
 - [ ] 2.8 Add protocol fixtures for valid events, invalid scopes, unknown optional fields, extensions, incompatible versions, duplicates, and correlation ambiguity.
 - [ ] 2.9 Publish protocol compatibility and extension documentation generated or checked against the executable schemas.
 
