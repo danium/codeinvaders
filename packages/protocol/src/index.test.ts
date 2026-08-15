@@ -37,6 +37,7 @@ import {
   serializeCanonicalEvent,
   serializeCanonicalState,
 } from './index.js';
+import { requiredScopeByEvent, validEventFixture } from './fixtures/index.js';
 
 declare const process: {
   readonly execPath: string;
@@ -323,150 +324,7 @@ void invalidUnsupportedCapability;
 void invalidAvailableCapability;
 void emptyPartialCapability;
 
-const capability = {
-  revision: 1,
-  effectiveSequence: 1,
-  platform: { agentKind: 'codex', agentVersion: '1.0.0' },
-  session: { mode: 'interactive' },
-  signals: Object.fromEntries(
-    ['sessions', 'turns', 'tasks', 'taskPlan', 'agents', 'tools', 'permissions'].map((key) => [
-      key,
-      {
-        availability: 'available',
-        evidenceQuality: 'observed',
-        coverage: 'full',
-        finality: 'mixed',
-        exclusions: [],
-      },
-    ]),
-  ),
-  exclusions: [],
-};
-const data: Record<CoreEventType, Record<string, unknown>> = {
-  'source.connected': { agentKind: 'codex', agentVersion: '1.0.0', capabilities: capability },
-  'source.capability.changed': {
-    capabilities: { ...capability, revision: 2, effectiveSequence: 1 },
-    previousRevision: 1,
-    effectiveSequence: 1,
-  },
-  'source.heartbeat': { uptimeMs: 1 },
-  'source.disconnected': { reason: 'normal' },
-  'telemetry.gap': { fromSequence: 1, toSequence: 2, reason: 'dropped' },
-  'workspace.discovered': { label: 'opaque', vcs: 'git' },
-  'session.started': { resume: false },
-  'session.ended': { reason: 'normal' },
-  'turn.started': { objectiveLabel: 'opaque' },
-  'turn.finished': { outcome: 'completed' },
-  'turn.quiescent': { reason: 'native' },
-  'agent.spawned': { role: 'worker', agentKind: 'codex', label: 'opaque', depth: 0 },
-  'agent.state.changed': { from: 'starting', to: 'working', reason: 'native' },
-  'agent.finished': { outcome: 'completed' },
-  'task.created': { label: 'opaque', status: 'pending', ordinal: 0, fallback: false },
-  'task.updated': { label: 'opaque', status: 'in_progress', ordinal: 0 },
-  'task.assigned': { assigneeAgentId: 'agent-1' },
-  'task.completion.requested': { requestedStatus: 'completed', checkpoint: 'native' },
-  'task.completed': { completion: 'observed' },
-  'task.failed': { category: 'validation' },
-  'task.denied': { reason: 'permission' },
-  'task.cancelled': { reason: 'replanned' },
-  'task.abandoned': { reason: 'timeout' },
-  'task.corrected': {
-    correction: 'reopen',
-    correctedEventId: 'event-0',
-    correctedEntityId: 'task-1',
-    status: 'in_progress',
-  },
-  'task.plan.reconciled': {
-    revision: 1,
-    complete: true,
-    items: [{ taskId: 'task-1', status: 'pending', ordinal: 0, identityBasis: 'stable-native-id' }],
-  },
-  'tool.requested': { name: 'shell', category: 'shell', parallelGroupId: 'group-1' },
-  'tool.started': { name: 'shell', category: 'shell' },
-  'tool.completed': { name: 'shell', category: 'shell', durationMs: 1, resultClass: 'success' },
-  'tool.failed': { name: 'shell', category: 'shell', durationMs: 1, failureClass: 'exit_nonzero' },
-  'permission.requested': { category: 'shell', riskClass: 'execute' },
-  'permission.resolved': { outcome: 'allowed' },
-};
-const requiredScope: Partial<Record<CoreEventType, Record<string, string>>> = {
-  'turn.started': { turnId: 'turn-1' },
-  'turn.finished': { turnId: 'turn-1' },
-  'turn.quiescent': { turnId: 'turn-1' },
-  'agent.spawned': { agentId: 'agent-1' },
-  'agent.state.changed': { agentId: 'agent-1' },
-  'agent.finished': { agentId: 'agent-1' },
-  'task.created': { taskId: 'task-1' },
-  'task.updated': { taskId: 'task-1' },
-  'task.assigned': { taskId: 'task-1' },
-  'task.completion.requested': { taskId: 'task-1' },
-  'task.completed': { taskId: 'task-1' },
-  'task.failed': { taskId: 'task-1' },
-  'task.denied': { taskId: 'task-1' },
-  'task.cancelled': { taskId: 'task-1' },
-  'task.abandoned': { taskId: 'task-1' },
-  'task.corrected': { taskId: 'task-1' },
-  'task.plan.reconciled': { turnId: 'turn-1' },
-  'tool.requested': { operationId: 'operation-1' },
-  'tool.started': { operationId: 'operation-1' },
-  'tool.completed': { operationId: 'operation-1' },
-  'tool.failed': { operationId: 'operation-1' },
-  'permission.requested': { permissionId: 'permission-1' },
-  'permission.resolved': { permissionId: 'permission-1' },
-};
-function fixture(type: CoreEventType): Record<string, unknown> {
-  return {
-    spec: protocolId,
-    version: '1.0.0',
-    eventId: 'event-1',
-    type,
-    occurredAt: '2026-08-15T14:22:31.120Z',
-    observedAt: '2026-08-15T14:22:31.127Z',
-    sequence: 1,
-    source: {
-      adapterId: 'adapter-1',
-      adapterVersion: '0.1.0',
-      streamId: 'stream-1',
-      epochId: 'epoch-1',
-    },
-    scope: { workspaceId: 'workspace-1', sessionId: 'session-1', ...requiredScope[type] },
-    fidelity: 'observed',
-    finality: type === 'task.completion.requested' ? 'provisional' : 'confirmed',
-    data: data[type],
-    ...(type === 'source.capability.changed'
-      ? { semantic: { kind: 'capability', terminal: false } }
-      : {}),
-    ...(type === 'telemetry.gap' ? { semantic: { kind: 'gap', terminal: false } } : {}),
-    ...(type === 'turn.quiescent' ? { semantic: { kind: 'quiescence', terminal: false } } : {}),
-    ...(type === 'task.completion.requested'
-      ? { semantic: { kind: 'checkpoint', terminal: false } }
-      : {}),
-    ...(type === 'task.completed'
-      ? { semantic: { kind: 'outcome', terminal: true, outcome: 'success' } }
-      : {}),
-    ...(type === 'task.failed'
-      ? { semantic: { kind: 'outcome', terminal: true, outcome: 'failure' } }
-      : {}),
-    ...(type === 'task.denied'
-      ? { semantic: { kind: 'outcome', terminal: true, outcome: 'denied' } }
-      : {}),
-    ...(type === 'task.cancelled'
-      ? { semantic: { kind: 'outcome', terminal: true, outcome: 'cancelled' } }
-      : {}),
-    ...(type === 'task.abandoned'
-      ? { semantic: { kind: 'outcome', terminal: true, outcome: 'abandoned' } }
-      : {}),
-    ...(type === 'task.corrected'
-      ? {
-          semantic: {
-            kind: 'correction',
-            terminal: false,
-            correctionOfEventId: 'event-0',
-            correctionOfEntityId: 'task-1',
-          },
-        }
-      : {}),
-  };
-}
+const fixture = validEventFixture;
 
 describe('AAP Draft 2020-12 conformance', () => {
   it('keeps terminal evidence explicit and rejects timeout success or unlinked corrections', () => {
@@ -1300,13 +1158,16 @@ describe('AAP Draft 2020-12 conformance', () => {
     expect(
       validateEvent({
         ...fixture('source.connected'),
-        data: { ...data['source.connected'], capabilities: { sessions: 'bad' } },
+        data: {
+          ...(fixture('source.connected').data as object),
+          capabilities: { sessions: 'bad' },
+        },
       }),
     ).toMatchObject({ status: 'rejected' });
   });
 
   it('checks scope requirements for every event-specific scope', () => {
-    for (const [type, scope] of Object.entries(requiredScope) as [
+    for (const [type, scope] of Object.entries(requiredScopeByEvent) as [
       CoreEventType,
       Record<string, string>,
     ][]) {
