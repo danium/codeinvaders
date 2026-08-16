@@ -295,6 +295,31 @@ describe('keyed opaque IDs', () => {
     expect(first).toBe(await deriver.derive('stream', 'stable-stream'));
   });
 
+  it('keeps the fixed vector after post-import binary constructor replacement', async () => {
+    const expected = 'oid1_O-Fm4IplbxSLURA5_kWch4V5_OmsJg2Y2GlozEnO6Po';
+    const deriver = await createOpaqueIdDeriver(key);
+    expect(await deriver.derive('stream', 'fixed-vector')).toBe(expected);
+    const originalUint8Array = Object.getOwnPropertyDescriptor(globalThis, 'Uint8Array');
+    const originalArrayBuffer = Object.getOwnPropertyDescriptor(globalThis, 'ArrayBuffer');
+    if (originalUint8Array === undefined || originalArrayBuffer === undefined) throw new Error();
+    try {
+      Object.defineProperty(globalThis, 'Uint8Array', {
+        configurable: true,
+        writable: true,
+        value: class PoisonedUint8Array {},
+      });
+      Object.defineProperty(globalThis, 'ArrayBuffer', {
+        configurable: true,
+        writable: true,
+        value: class PoisonedArrayBuffer {},
+      });
+      expect(await deriver.derive('stream', 'fixed-vector')).toBe(expected);
+    } finally {
+      Object.defineProperty(globalThis, 'Uint8Array', originalUint8Array);
+      Object.defineProperty(globalThis, 'ArrayBuffer', originalArrayBuffer);
+    }
+  });
+
   it('exposes an immutable, serialization-safe public deriver', async () => {
     const deriver = await createOpaqueIdDeriver(key);
     expect(Object.isFrozen(deriver)).toBe(true);
@@ -337,5 +362,88 @@ describe('keyed opaque IDs', () => {
     expect(isOpaqueId(`oid1_${'A'.repeat(42)}B`)).toBe(false);
     expect(isOpaqueId(`oid1_${'A'.repeat(42)}E`)).toBe(true);
     expect(isOpaqueId(`${id}\n`)).toBe(false);
+  });
+
+  it('keeps the established vector after post-import Web Crypto and invocation poisoning', async () => {
+    const expected = 'oid1_gqvR2-eIp46PuNf8w6wLW9TyW1Lpz-PwAdDU8QLvONY';
+    const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    const originalCrypto = globalThis.crypto;
+    const originalSubtle = originalCrypto?.subtle;
+    const originalImportKey = Object.getOwnPropertyDescriptor(originalSubtle ?? {}, 'importKey');
+    const originalSign = Object.getOwnPropertyDescriptor(originalSubtle ?? {}, 'sign');
+    const fakeImportKey = async () => {
+      throw new Error('CRYPTO_IMPORT_POISON_CANARY');
+    };
+    const fakeSign = async () => new ArrayBuffer(OPAQUE_ID_KEY_BYTES);
+    const fakeSubtle = { importKey: fakeImportKey, sign: fakeSign } as unknown as SubtleCrypto;
+    const fakeCrypto = { subtle: fakeSubtle } as unknown as Crypto;
+    const originalCall = Function.prototype.call;
+    const originalApply = Function.prototype.apply;
+    const originalReflectApply = Reflect.apply;
+    let idPromise: Promise<string> | undefined;
+    let thrown: unknown;
+
+    try {
+      if (originalSubtle !== undefined) {
+        Object.defineProperty(originalSubtle, 'importKey', {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: fakeImportKey,
+        });
+        Object.defineProperty(originalSubtle, 'sign', {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: fakeSign,
+        });
+      }
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        enumerable: originalCryptoDescriptor?.enumerable ?? true,
+        writable: true,
+        value: fakeCrypto,
+      });
+      Function.prototype.call = (() => {
+        throw new Error('CRYPTO_FUNCTION_CALL_POISON_CANARY');
+      }) as typeof Function.prototype.call;
+      Function.prototype.apply = (() => {
+        throw new Error('CRYPTO_FUNCTION_APPLY_POISON_CANARY');
+      }) as typeof Function.prototype.apply;
+      Reflect.apply = (() => {
+        throw new Error('CRYPTO_REFLECT_APPLY_POISON_CANARY');
+      }) as typeof Reflect.apply;
+
+      try {
+        const deriver = await createOpaqueIdDeriver(key);
+        idPromise = deriver.derive('installation', 'native-identity');
+      } catch (error) {
+        thrown = error;
+      }
+    } finally {
+      if (originalCryptoDescriptor === undefined)
+        delete (globalThis as { crypto?: unknown }).crypto;
+      else Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+      if (originalSubtle !== undefined) {
+        if (originalImportKey === undefined)
+          delete (originalSubtle as { importKey?: unknown }).importKey;
+        else Object.defineProperty(originalSubtle, 'importKey', originalImportKey);
+        if (originalSign === undefined) delete (originalSubtle as { sign?: unknown }).sign;
+        else Object.defineProperty(originalSubtle, 'sign', originalSign);
+      }
+      Function.prototype.call = originalCall;
+      Function.prototype.apply = originalApply;
+      Reflect.apply = originalReflectApply;
+    }
+
+    expect(thrown).toBeUndefined();
+    expect(idPromise).toBeDefined();
+    expect(await idPromise).toBe(expected);
+    expect(await idPromise).not.toBe(`oid1_${'A'.repeat(43)}`);
+    expect(globalThis.crypto).toBe(originalCrypto);
+    expect(Object.getOwnPropertyDescriptor(originalSubtle ?? {}, 'importKey')).toEqual(
+      originalImportKey,
+    );
+    expect(Object.getOwnPropertyDescriptor(originalSubtle ?? {}, 'sign')).toEqual(originalSign);
   });
 });

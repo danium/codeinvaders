@@ -7,6 +7,8 @@ runtime behavior, contributor workflows, and release procedures.
 
 Entry point: [Protocol compatibility and extensions](./protocol-compatibility.md).
 
+Adapter boundary: [Sanitized ingress](./adapter-ingress.md).
+
 Sanitization boundary: examples, screenshots, logs, and reports must use
 synthetic or sanitized values. Do not publish native prompts, messages, source,
 commands, outputs, paths, URLs, credentials, environment values, transcripts,

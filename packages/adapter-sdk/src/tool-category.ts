@@ -5,6 +5,7 @@ import {
   type SafePropertySnapshot,
 } from './safe-input.js';
 import { harden } from './immutable.js';
+import { adapterIntrinsicsReady } from './intrinsics.js';
 
 const freeze = harden;
 
@@ -167,6 +168,7 @@ function startsWithMcpPrefix(value: string): boolean {
 
 /** Identifies MCP names without retaining or returning the name. */
 export function isMcpToolName(value: unknown): boolean {
+  if (!adapterIntrinsicsReady) return false;
   if (typeof value !== 'string') return false;
   return value === 'mcp' || value === 'MCP' || startsWithMcpPrefix(value);
 }
@@ -213,6 +215,7 @@ export function categorizeToolSnapshot(snapshot: readonly SafePropertySnapshot[]
  * all MCP names are mapped to `mcp`; the input string is never returned.
  */
 export function categorizeBuiltinTool(toolName: unknown): ToolCategory {
+  if (!adapterIntrinsicsReady) return UNKNOWN_TOOL_CATEGORY;
   if (isMcpToolName(toolName)) return MCP_TOOL_CATEGORY;
   if (typeof toolName !== 'string') return UNKNOWN_TOOL_CATEGORY;
 

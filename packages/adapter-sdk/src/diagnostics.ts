@@ -5,15 +5,23 @@ import {
   createHardenedDiagnosticArray,
 } from './diagnostic-registry.js';
 import { appendArrayValue } from './immutable.js';
+import { adapterIntrinsics, adapterIntrinsicsReady } from './intrinsics.js';
 import { makeImmutableRecord, readSnapshot, type SafePropertySnapshot } from './safe-input.js';
 
 const isSafeInteger = Number.isSafeInteger;
 const isFiniteNumber = Number.isFinite;
-const isArray = Array.isArray;
-const getPrototypeOf = Object.getPrototypeOf;
-const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-const ownKeys = Reflect.ownKeys;
 const isProxy = nodeIsProxy;
+
+const safeProtocolDiagnosticCodes = protocolDiagnosticCodes ?? [];
+
+function degradedDiagnostic(): AdapterDiagnostic {
+  return {
+    __proto__: null,
+    code: 'diagnostic-invalid',
+    severity: 'error',
+    boundary: 'adapter',
+  } as unknown as AdapterDiagnostic;
+}
 
 /**
  * A diagnostic count is a summary of one bounded adapter batch, not a generic
@@ -67,7 +75,7 @@ export type AdapterBoundaryDiagnosticCode = (typeof adapterBoundaryDiagnosticCod
  * is deliberately not copied across this adapter boundary.
  */
 export const adapterDiagnosticCodes = combineHardenedDiagnosticArrays(
-  protocolDiagnosticCodes,
+  safeProtocolDiagnosticCodes,
   adapterBoundaryDiagnosticCodes,
 );
 
@@ -156,20 +164,24 @@ function contains<T extends string>(values: readonly T[], value: unknown): value
 }
 
 export function isAdapterDiagnosticCode(value: unknown): value is AdapterDiagnosticCode {
+  if (!adapterIntrinsicsReady) return false;
   return contains(adapterDiagnosticCodes, value);
 }
 
 export function isAdapterBoundaryDiagnosticCode(
   value: unknown,
 ): value is AdapterBoundaryDiagnosticCode {
+  if (!adapterIntrinsicsReady) return false;
   return contains(adapterBoundaryDiagnosticCodes, value);
 }
 
 export function isProtocolDiagnosticCode(value: unknown): value is ProtocolDiagnosticCode {
-  return contains(protocolDiagnosticCodes, value);
+  if (!adapterIntrinsicsReady) return false;
+  return contains(safeProtocolDiagnosticCodes, value);
 }
 
 function isProtocolField(value: unknown): value is ProtocolDiagnosticField {
+  if (!adapterIntrinsicsReady) return false;
   return contains(protocolDiagnosticFields, value);
 }
 
@@ -322,12 +334,13 @@ function consumeDescriptorWork(context: DiagnosticSnapshotContext): boolean {
 }
 
 function isDiagnosticRecord(value: object): boolean {
+  if (!adapterIntrinsicsReady || adapterIntrinsics === undefined) return false;
   try {
-    if (isProxy(value) || isArray(value)) return false;
-    const prototype = getPrototypeOf(value);
+    if (isProxy(value) || adapterIntrinsics.arrayIsArray(value)) return false;
+    const prototype = adapterIntrinsics.objectGetPrototypeOf(value);
     if (prototype === null) return true;
     if (isProxy(prototype)) return false;
-    return getPrototypeOf(prototype) === null;
+    return adapterIntrinsics.objectGetPrototypeOf(prototype) === null;
   } catch {
     return false;
   }
@@ -345,6 +358,7 @@ function isDiagnosticValue(
   depth: number,
   context: DiagnosticSnapshotContext,
 ): boolean {
+  if (!adapterIntrinsicsReady || adapterIntrinsics === undefined) return false;
   if (value === null || value === undefined) return true;
   switch (typeof value) {
     case 'string':
@@ -366,16 +380,16 @@ function isDiagnosticValue(
 
   let keys: (string | symbol)[];
   try {
-    keys = ownKeys(value);
+    keys = adapterIntrinsics.reflectOwnKeys(value);
     if (keys.length > MAX_DIAGNOSTIC_INPUT_PROPERTIES) return false;
     for (let index = 0; index < keys.length; index += 1) {
       const key = keys[index];
       if (typeof key !== 'string') return false;
       if (!consumeDescriptorWork(context)) return false;
-      const descriptor = getOwnPropertyDescriptor(value, key);
+      const descriptor = adapterIntrinsics.objectGetOwnPropertyDescriptor(value, key);
       if (descriptor === undefined) return false;
       if (!consumeDescriptorWork(context)) return false;
-      const dataDescriptor = getOwnPropertyDescriptor(descriptor, 'value');
+      const dataDescriptor = adapterIntrinsics.objectGetOwnPropertyDescriptor(descriptor, 'value');
       if (dataDescriptor === undefined) return false;
       if (!isDiagnosticValue(dataDescriptor.value, depth + 1, context)) return false;
     }
@@ -404,6 +418,7 @@ function snapshotDiagnosticProperties(
   keys: readonly string[],
   allowUndefined: boolean,
 ): readonly SafePropertySnapshot[] | undefined {
+  if (!adapterIntrinsicsReady || adapterIntrinsics === undefined) return undefined;
   if (input === undefined && allowUndefined) return createHardenedDiagnosticArray([]);
   if (input === null || typeof input !== 'object' || !isDiagnosticRecord(input)) return undefined;
 
@@ -412,15 +427,15 @@ function snapshotDiagnosticProperties(
 
   const snapshot: SafePropertySnapshot[] = [];
   try {
-    const inputKeys = ownKeys(input);
+    const inputKeys = adapterIntrinsics.reflectOwnKeys(input);
     for (let index = 0; index < inputKeys.length; index += 1) {
       const key = inputKeys[index];
       if (typeof key !== 'string' || !isRequestedProperty(key, keys)) continue;
       if (!consumeDescriptorWork(context)) return undefined;
-      const descriptor = getOwnPropertyDescriptor(input, key);
+      const descriptor = adapterIntrinsics.objectGetOwnPropertyDescriptor(input, key);
       if (descriptor === undefined) return undefined;
       if (!consumeDescriptorWork(context)) return undefined;
-      const dataDescriptor = getOwnPropertyDescriptor(descriptor, 'value');
+      const dataDescriptor = adapterIntrinsics.objectGetOwnPropertyDescriptor(descriptor, 'value');
       if (dataDescriptor === undefined) return undefined;
       appendArrayValue(
         snapshot,
@@ -437,6 +452,7 @@ function snapshotDiagnosticProperties(
 }
 
 function invalidDiagnostic(): AdapterDiagnostic {
+  if (!adapterIntrinsicsReady) return degradedDiagnostic();
   return makeImmutableRecord<AdapterDiagnostic>([
     ['code', 'diagnostic-invalid'],
     ['severity', 'error'],
@@ -449,6 +465,7 @@ function invalidDiagnostic(): AdapterDiagnostic {
  * Only data descriptors for the allowlisted fields are read.
  */
 export function buildAdapterDiagnostic(input: unknown): AdapterDiagnostic {
+  if (!adapterIntrinsicsReady) return degradedDiagnostic();
   try {
     const snapshot = snapshotDiagnosticProperties(input, DIAGNOSTIC_INPUT_PROPERTY_KEYS, false);
     if (snapshot === undefined) return invalidDiagnostic();
@@ -460,6 +477,7 @@ export function buildAdapterDiagnostic(input: unknown): AdapterDiagnostic {
 
 /** Builds a diagnostic from a code and an independently snapshotted options record. */
 export function createAdapterDiagnostic(code: unknown, options?: unknown): AdapterDiagnostic {
+  if (!adapterIntrinsicsReady) return degradedDiagnostic();
   try {
     const snapshot = snapshotDiagnosticProperties(options, DIAGNOSTIC_INPUT_PROPERTY_KEYS, true);
     if (snapshot === undefined) return invalidDiagnostic();

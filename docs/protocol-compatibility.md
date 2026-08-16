@@ -28,6 +28,11 @@ diff together with the protocol tests.
   to smuggle prompts, source, commands, outputs, paths, URLs, credentials,
   environment values, transcripts, remotes, or user names into canonical
   data.
+- The exported `x-codeinvaders-limits` values are schema annotations for the
+  boundary budget. JSON Schema/AJV does not calculate serialized UTF-8 size or
+  recursive depth from those annotations; use `validateEvent` (or an
+  equivalent boundary check) before IPC, spool, journal, or other storage
+  handoff. The runtime validator enforces the documented byte and depth limits.
 
 ## Authoring guidance
 

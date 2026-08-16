@@ -18,6 +18,7 @@ import {
   type SafePropertySnapshot,
 } from './safe-input.js';
 import { appendArrayValue, harden } from './immutable.js';
+import { adapterIntrinsicsReady } from './intrinsics.js';
 
 const freeze = harden;
 const isSafeInteger = Number.isSafeInteger;
@@ -276,6 +277,7 @@ function safeOpaqueId(value: unknown): OpaqueId | undefined {
 }
 
 function snapshotPayload(input: unknown): readonly SafePropertySnapshot[] {
+  if (!adapterIntrinsicsReady) throw new PayloadBuilderError('invalid-agent-state');
   return snapshotAllowedProperties(input, PAYLOAD_PROPERTY_KEYS);
 }
 

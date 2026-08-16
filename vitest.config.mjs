@@ -9,6 +9,7 @@ export default defineConfig({
       'apps/**/src/**/*.test.mjs',
       'tests/**/*.test.mjs',
     ],
+    fileParallelism: false,
     passWithNoTests: false,
   },
 });

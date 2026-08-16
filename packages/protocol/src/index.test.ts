@@ -32,6 +32,7 @@ import {
   type CoreEventType,
   CanonicalSerializationError,
   canonicalizeEvent,
+  canonicalUtf8ByteLength,
   canonicalizeState,
   encodeCanonicalEvent,
   encodeCanonicalState,
@@ -1091,6 +1092,63 @@ describe('AAP Draft 2020-12 conformance', () => {
     }).not.toThrow();
   });
 
+  it('seals all public keyword validator call targets against mutation', () => {
+    const definitions: Array<{ validate?: unknown }> = [];
+    const compiler = {
+      addKeyword: (definition: unknown) => {
+        if (typeof definition === 'object' && definition !== null)
+          definitions.push(definition as { validate?: unknown });
+      },
+      getKeyword: () => undefined,
+    };
+    registerProtocolSchemaKeywords(compiler);
+    const validators = definitions.filter(
+      (definition): definition is { validate: (...args: never[]) => unknown } =>
+        typeof definition.validate === 'function',
+    );
+    expect(validators).toHaveLength(5);
+    for (const { validate } of validators) {
+      const descriptor = Object.getOwnPropertyDescriptor(validate, 'call');
+      expect(descriptor).toMatchObject({ configurable: false, enumerable: false, writable: false });
+      const originalCall = descriptor?.value;
+      try {
+        Object.defineProperty(validate, 'call', {
+          configurable: true,
+          writable: true,
+          value: () => true,
+        });
+      } catch {
+        // The failed mutation is the behavior under test.
+      }
+      expect(Object.getOwnPropertyDescriptor(validate, 'call')).toMatchObject({
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: originalCall,
+      });
+    }
+
+    const AjvConstructor = Ajv2020Module.default as unknown as new (options: object) => {
+      addKeyword: (definition: object) => unknown;
+      getKeyword: (keyword: string) => unknown;
+      compile: (schema: object) => (value: unknown) => boolean;
+    };
+    const externalAjv = new AjvConstructor({
+      strict: false,
+      allErrors: false,
+      validateFormats: true,
+    });
+    (addFormatsModule.default as unknown as (instance: object) => void)(externalAjv);
+    registerProtocolSchemaKeywords(externalAjv);
+    const externalValidator = externalAjv.compile(coreEventSchemas['task.completed']);
+    const timeoutSuccess = {
+      ...fixture('task.completed'),
+      semantic: { kind: 'outcome', terminal: true, outcome: 'success', basis: 'timeout' },
+    };
+    expect(externalValidator(timeoutSuccess)).toBe(false);
+    expect(validateEvent(timeoutSuccess).status).toBe('rejected');
+  });
+
   it('executes each exported schema directly and rejects every nested required property', () => {
     type TestSchema = {
       required?: readonly string[];
@@ -1249,6 +1307,43 @@ describe('AAP Draft 2020-12 conformance', () => {
     expect(JSON.stringify(unsupported)).not.toContain('PRIVATE');
   });
 
+  it('does not trust RegExp.prototype.test for SemVer, IDs, event types, or allowlisted fields', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(RegExp.prototype, 'test');
+    expect(originalDescriptor).toBeDefined();
+    const canary = 'PROTOCOL_REGEXP_NATIVE_CANARY';
+    const cases = [
+      { ...fixture('session.started'), version: canary },
+      { ...fixture('session.started'), eventId: `${canary} ` },
+      { ...fixture('session.started'), type: `x.Bad.${canary}` },
+      {
+        ...fixture('tool.started'),
+        data: { ...(fixture('tool.started').data as object), name: `${canary} ` },
+      },
+    ];
+    let results: ReturnType<typeof validateEvent>[] = [];
+    let thrown: unknown;
+    try {
+      Object.defineProperty(RegExp.prototype, 'test', {
+        configurable: originalDescriptor?.configurable ?? true,
+        enumerable: originalDescriptor?.enumerable ?? false,
+        writable: originalDescriptor?.writable ?? true,
+        value: () => true,
+      });
+      try {
+        results = cases.map((event) => validateEvent(event));
+      } catch (error) {
+        thrown = error;
+      }
+    } finally {
+      if (originalDescriptor === undefined) delete (RegExp.prototype as { test?: unknown }).test;
+      else Object.defineProperty(RegExp.prototype, 'test', originalDescriptor);
+    }
+    expect(thrown).toBeUndefined();
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(JSON.stringify(results)).not.toContain(canary);
+    expect(originalDescriptor).toEqual(Object.getOwnPropertyDescriptor(RegExp.prototype, 'test'));
+  });
+
   it('accepts optional compatible fields and handles only documented extensions', () => {
     const compatibleCoreEvent = {
       ...fixture('session.started'),
@@ -1364,6 +1459,45 @@ describe('AAP Draft 2020-12 conformance', () => {
     expect(validateEvent(valid).status).toBe('preserved-extension');
     expect(validator(invalid)).toBe(false);
     expect(validateEvent(invalid).status).toBe('rejected');
+  });
+
+  it('keeps extension date-time acceptance identical to the exported schema validator', () => {
+    const AjvConstructor = Ajv2020Module.default as unknown as new (options: object) => {
+      compile: (schema: object) => (value: unknown) => boolean;
+    };
+    const externalAjv = new AjvConstructor({
+      strict: false,
+      allErrors: false,
+      validateFormats: true,
+    });
+    (addFormatsModule.default as unknown as (instance: object) => void)(externalAjv);
+    const schemaValidator = externalAjv.compile(extensionEventSchema);
+    const base = {
+      ...fixture('session.started'),
+      type: 'x.io.example.telemetry',
+      extension: { fallback: 'preserve-in-journal', documentation: 'Opaque telemetry.' },
+      data: { value: 'opaque' },
+    };
+    const timestamps = [
+      '2024-02-29T23:59:60Z',
+      '2024-01-01T23:59:59+23:59',
+      '2024-02-29T23:59:59.123456Z',
+      '2023-02-29T23:59:59Z',
+      '2024-02-30T23:59:60Z',
+      '2024-01-01T24:00:00Z',
+      '2024-01-01T29:00:00Z',
+      '2024-01-01T00:00:00+24:00',
+      '2024-01-01T00:00:00+99:99',
+      '2024-01-01T00:00:00+00:99',
+      '2024-01-01T00:00:60Z',
+      '2024-01-01T23:59:60+23:59',
+    ];
+    for (const timestamp of timestamps) {
+      const candidate = { ...base, occurredAt: timestamp, observedAt: timestamp };
+      const schemaAccepted = schemaValidator(candidate);
+      const runtimeAccepted = validateEvent(candidate).status === 'preserved-extension';
+      expect(runtimeAccepted, timestamp).toBe(schemaAccepted);
+    }
   });
 
   it('rejects invalid namespaced extension envelopes with fixed diagnostics', () => {
@@ -2184,6 +2318,21 @@ describe('AAP Draft 2020-12 conformance', () => {
     );
   });
 
+  it('accepts the structural maximum canonical depth and rejects one deeper', () => {
+    let atMaximum: unknown = 'leaf';
+    for (let index = 0; index < MAX_CANONICAL_STATE_DEPTH; index += 1)
+      atMaximum = { nested: atMaximum };
+    expect(() => canonicalizeState(atMaximum)).not.toThrow();
+
+    const tooDeep = { nested: atMaximum };
+    expect(() => canonicalizeState(tooDeep)).toThrowError(CanonicalSerializationError);
+    try {
+      canonicalizeState(tooDeep);
+    } catch (error) {
+      expect((error as CanonicalSerializationError).code).toBe('state-too-deep');
+    }
+  });
+
   it('produces identical event text and UTF-8 bytes regardless of object insertion order', () => {
     const reverseKeys = (value: unknown): unknown => {
       if (Array.isArray(value)) return value.map(reverseKeys);
@@ -2614,20 +2763,19 @@ describe('AAP Draft 2020-12 conformance', () => {
     JSON.stringify = (() => {
       throw attackerError;
     }) as typeof JSON.stringify;
+    let stateText: string | undefined;
     let stateError: unknown;
     try {
       try {
-        serializeCanonicalState('safe');
+        stateText = serializeCanonicalState('safe');
       } catch (error) {
         stateError = error;
       }
     } finally {
       JSON.stringify = originalStringify;
     }
-    expect(stateError).toBeInstanceOf(CanonicalSerializationError);
-    expect((stateError as CanonicalSerializationError).code).toBe('serialization-failed');
-    expect(stateError).not.toBe(attackerError);
-    expect((stateError as Error).message).not.toContain(secret);
+    expect(stateError).toBeUndefined();
+    expect(stateText).toBe('"safe"');
 
     const originalTextEncoder = globalThis.TextEncoder;
     Object.defineProperty(globalThis, 'TextEncoder', {
@@ -2658,15 +2806,103 @@ describe('AAP Draft 2020-12 conformance', () => {
         value: originalTextEncoder,
       });
     }
-    expect(encodedErrors).toHaveLength(2);
-    expect(encodedErrors[0]).toBeInstanceOf(CanonicalSerializationError);
-    expect((encodedErrors[0] as CanonicalSerializationError).code).toBe('serialization-failed');
-    expect(encodedErrors[1]).toBeInstanceOf(CanonicalSerializationError);
-    expect((encodedErrors[1] as CanonicalSerializationError).code).toBe('event-not-accepted');
-    for (const error of encodedErrors) {
-      expect(error).not.toBe(attackerError);
-      expect((error as Error).message).not.toContain(secret);
+    expect(encodedErrors).toHaveLength(0);
+  });
+
+  it('uses captured freeze, apply, and UTF-8 intrinsics after poisoning', () => {
+    const originalFreeze = Object.freeze;
+    const originalApply = Reflect.apply;
+    try {
+      Object.freeze = (() => undefined) as unknown as typeof Object.freeze;
+      Reflect.apply = (() => {
+        throw new Error('REFLECT_APPLY_CANARY');
+      }) as typeof Reflect.apply;
+      const event = canonicalizeEvent(fixture('session.started'));
+      expect(Object.isFrozen(event)).toBe(true);
+      expect(Object.isFrozen(event.source)).toBe(true);
+      expect(Object.isFrozen(event.scope)).toBe(true);
+      expect(Reflect.set(event.scope, 'sessionId', 'mutated')).toBe(false);
+      expect(serializeCanonicalEvent(event)).not.toContain('mutated');
+      expect(canonicalUtf8ByteLength('😀'.repeat(MAX_EVENT_BYTES / 4))).toBe(MAX_EVENT_BYTES);
+    } finally {
+      Object.freeze = originalFreeze;
+      Reflect.apply = originalApply;
     }
+  });
+
+  it('uses exact captured ASCII and multibyte UTF-8 vectors', () => {
+    expect(canonicalUtf8ByteLength('Az')).toBe(2);
+    expect(canonicalUtf8ByteLength('é😀')).toBe(6);
+  });
+
+  it('keeps validation and canonical output exact after serializer intrinsic poisoning', () => {
+    const event = fixture('session.started');
+    const baselineJson = serializeCanonicalEvent(event);
+    let tooDeep: unknown = false;
+    for (let index = 0; index <= MAX_JSON_DEPTH; index += 1) tooDeep = { nested: tooDeep };
+    const oversized = {
+      ...event,
+      data: { resume: false, padding: 'x'.repeat(MAX_EVENT_BYTES) },
+    };
+    const originalKeys = Object.keys;
+    const originalStringify = JSON.stringify;
+    const originalCall = Function.prototype.call;
+    const originalApply = Function.prototype.apply;
+    const originalReflectApply = Reflect.apply;
+    let canonical: AnyCoreEvent | undefined;
+    let canonicalJson: string | undefined;
+    let byteLength: number | undefined;
+    let validation: ReturnType<typeof validateEvent> | undefined;
+    let deepValidation: ReturnType<typeof validateEvent> | undefined;
+    let oversizedValidation: ReturnType<typeof validateEvent> | undefined;
+    let thrown: unknown;
+    try {
+      Object.keys = (() => []) as typeof Object.keys;
+      JSON.stringify = (() => '{"SERIALIZER_POISON_CANARY":true}') as typeof JSON.stringify;
+      Function.prototype.call = (() => {
+        throw new Error('FUNCTION_CALL_POISON_CANARY');
+      }) as typeof Function.prototype.call;
+      Function.prototype.apply = (() => {
+        throw new Error('FUNCTION_APPLY_POISON_CANARY');
+      }) as typeof Function.prototype.apply;
+      Reflect.apply = (() => {
+        throw new Error('REFLECT_APPLY_POISON_CANARY');
+      }) as typeof Reflect.apply;
+      try {
+        canonical = canonicalizeEvent(event);
+        canonicalJson = serializeCanonicalEvent(canonical);
+        byteLength = canonicalUtf8ByteLength(canonicalJson);
+        validation = validateEvent(event);
+        deepValidation = validateEvent({ ...event, data: { resume: false, nested: tooDeep } });
+        oversizedValidation = validateEvent(oversized);
+      } catch (error) {
+        thrown = error;
+      }
+    } finally {
+      Object.keys = originalKeys;
+      JSON.stringify = originalStringify;
+      Function.prototype.call = originalCall;
+      Function.prototype.apply = originalApply;
+      Reflect.apply = originalReflectApply;
+    }
+
+    expect(thrown).toBeUndefined();
+    expect(canonical).toBeDefined();
+    expect(canonicalJson).toBe(baselineJson);
+    expect(canonicalJson).toBe(serializeCanonicalEvent(canonical));
+    expect(byteLength).toBe(canonicalUtf8ByteLength(baselineJson));
+    expect(validation?.status).toBe('accepted');
+    expect(deepValidation).toMatchObject({
+      status: 'rejected',
+      diagnostics: [{ code: 'event-too-deep' }],
+    });
+    expect(oversizedValidation).toMatchObject({
+      status: 'rejected',
+      diagnostics: [{ code: 'event-too-large' }],
+    });
+    const parsed = JSON.parse(canonicalJson ?? 'null');
+    expect(validateEvent(parsed).status).toBe('accepted');
+    expect(parsed).toEqual(canonical);
   });
 
   it('does not echo attacker-controlled keys, IDs, paths, or idKey values', () => {
@@ -2943,4 +3179,161 @@ describe('AAP Draft 2020-12 conformance', () => {
       }
     }
   });
+
+  it('warms core validators before post-import poisoning and fails closed when poisoned first', async () => {
+    // @ts-expect-error The root project intentionally does not depend on Node type declarations.
+    const { execFileSync } = await import('node:child_process');
+    const workingDirectory = process.cwd().replace(/\\/g, '/');
+    const repoRoot = workingDirectory.endsWith('/packages/protocol')
+      ? workingDirectory.slice(0, -'/packages/protocol'.length)
+      : workingDirectory;
+    const sourcePath = `${repoRoot}/packages/protocol/src/index.ts`;
+    const event = JSON.stringify(fixture('session.started'));
+    const loadProtocol = `
+      import { readFileSync } from 'node:fs';
+      import { resolve } from 'node:path';
+      import { pathToFileURL } from 'node:url';
+      const sourcePath = ${JSON.stringify(sourcePath)};
+      const typescript = await import('typescript');
+      const ajvUrl = pathToFileURL(resolve('packages/protocol/node_modules/ajv/dist/2020.js')).href;
+      const formatsUrl = pathToFileURL(resolve('packages/protocol/node_modules/ajv-formats/dist/index.js')).href;
+      await import(ajvUrl);
+      await import(formatsUrl);
+      const source = readFileSync(sourcePath, 'utf8');
+      const javascript = typescript.transpileModule(source, {
+        compilerOptions: {
+          module: typescript.ModuleKind.ESNext,
+          target: typescript.ScriptTarget.ES2023,
+        },
+      }).outputText
+        .replaceAll('ajv/dist/2020.js', ajvUrl)
+        .replaceAll('ajv-formats', formatsUrl);
+      const protocolUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(javascript);
+    `;
+    const healthyScript = `${loadProtocol}
+      const protocol = await import(protocolUrl);
+      const event = ${event};
+      const extension = {
+        ...event,
+        type: 'x.io.example.telemetry',
+        extension: { fallback: 'preserve-in-journal', documentation: 'opaque' },
+        data: { value: 'opaque' },
+      };
+      const invalid = { ...event, type: 'vendor.secret.event' };
+      const originals = {
+        keys: Object.keys,
+        getPrototypeOf: Object.getPrototypeOf,
+        getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+        create: Object.create,
+        defineProperty: Object.defineProperty,
+        isArray: Array.isArray,
+        stringify: JSON.stringify,
+        call: Function.prototype.call,
+        apply: Function.prototype.apply,
+        reflectApply: Reflect.apply,
+        ownKeys: Reflect.ownKeys,
+      };
+      let results;
+      try {
+        const poison = () => { throw new Error('POST_IMPORT_POISON_CANARY'); };
+        Object.keys = () => [];
+        Object.getPrototypeOf = poison;
+        Object.getOwnPropertyDescriptor = poison;
+        Object.create = poison;
+        Object.defineProperty = poison;
+        Array.isArray = poison;
+        JSON.stringify = () => 'POST_IMPORT_SERIALIZER_POISON';
+        Function.prototype.call = poison;
+        Function.prototype.apply = poison;
+        Reflect.apply = poison;
+        Reflect.ownKeys = poison;
+        results = [protocol.validateEvent(event), protocol.validateEvent(extension), protocol.validateEvent(invalid)];
+      } finally {
+        Object.keys = originals.keys;
+        Object.getPrototypeOf = originals.getPrototypeOf;
+        Object.getOwnPropertyDescriptor = originals.getOwnPropertyDescriptor;
+        Object.create = originals.create;
+        Object.defineProperty = originals.defineProperty;
+        Array.isArray = originals.isArray;
+        JSON.stringify = originals.stringify;
+        Function.prototype.call = originals.call;
+        Function.prototype.apply = originals.apply;
+        Reflect.apply = originals.reflectApply;
+        Reflect.ownKeys = originals.ownKeys;
+      }
+      if (results[0].status !== 'accepted' || results[1].status !== 'preserved-extension' || results[2].status !== 'rejected')
+        throw new Error('post-import validation did not use captured intrinsics');
+      if (originals.stringify(results).includes('POST_IMPORT')) throw new Error('poison leaked');
+      process.stdout.write('healthy-post-import-ok');
+    `;
+    const healthy = execFileSync(
+      process.execPath,
+      ['--experimental-strip-types', '--input-type=module', '-e', healthyScript],
+      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    expect(healthy).toBe('healthy-post-import-ok');
+
+    const preImportProbes = [
+      "Object.keys = () => { throw new Error('PRE_IMPORT_KEYS_POISON'); };",
+      "Object.getPrototypeOf = () => { throw new Error('PRE_IMPORT_PROTO_POISON'); };",
+      "Object.getOwnPropertyDescriptor = () => { throw new Error('PRE_IMPORT_DESCRIPTOR_POISON'); };",
+      "Object.create = () => { throw new Error('PRE_IMPORT_CREATE_POISON'); };",
+      "Object.defineProperty = () => { throw new Error('PRE_IMPORT_DEFINE_POISON'); };",
+      'globalThis.TextEncoder = class { encode(value) { return new Uint8Array(value.length); } };',
+    ];
+    for (const probe of preImportProbes) {
+      const corruptBeforeImportScript = `${loadProtocol}
+        const event = ${event};
+        const extension = {
+          ...event,
+          type: 'x.io.example.oversized',
+          extension: { fallback: 'preserve-in-journal', documentation: 'opaque' },
+          data: { value: 'x'.repeat(16 * 1024) },
+        };
+        const originals = {
+          keys: Object.keys,
+          getPrototypeOf: Object.getPrototypeOf,
+          getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+          create: Object.create,
+          defineProperty: Object.defineProperty,
+          textEncoder: globalThis.TextEncoder,
+        };
+        ${probe}
+        let imported = false;
+        let status = 'not-run';
+        let byteLength;
+        let textEncoderAccepted = false;
+        try {
+          const protocol = await import(protocolUrl);
+          imported = true;
+          status = protocol.validateEvent(event).status;
+          if (${JSON.stringify(probe)}.includes('TextEncoder')) {
+            try {
+              byteLength = protocol.canonicalUtf8ByteLength('😀'.repeat(4096));
+            } catch {}
+            textEncoderAccepted =
+              byteLength === 0 || protocol.validateEvent(extension).status === 'preserved-extension';
+          }
+        } catch {
+          status = 'threw';
+        } finally {
+          Object.keys = originals.keys;
+          Object.getPrototypeOf = originals.getPrototypeOf;
+          Object.getOwnPropertyDescriptor = originals.getOwnPropertyDescriptor;
+          Object.create = originals.create;
+          Object.defineProperty = originals.defineProperty;
+          globalThis.TextEncoder = originals.textEncoder;
+        }
+        if (!imported || status !== 'rejected' || textEncoderAccepted)
+          throw new Error('pre-import poisoning was not fail-closed');
+        process.stdout.write('pre-import-fail-closed');
+      `;
+      const corruptBeforeImport = execFileSync(
+        process.execPath,
+        ['--experimental-strip-types', '--input-type=module', '-e', corruptBeforeImportScript],
+        { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      expect(corruptBeforeImport).toBe('pre-import-fail-closed');
+    }
+  }, 30_000);
 });

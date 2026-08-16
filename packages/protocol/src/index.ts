@@ -2,6 +2,400 @@ import * as Ajv2020Module from 'ajv/dist/2020.js';
 import * as addFormatsModule from 'ajv-formats';
 import type { ErrorObject, KeywordDefinition, ValidateFunction } from 'ajv';
 
+// Capture mutable platform intrinsics while this module is evaluated. The
+// validation, canonical-writer, and schema-construction boundaries must not
+// start consulting a poisoned global after an adapter has imported the module.
+// The probes are deliberate: an import that observes a structurally plausible
+// but behaviorally false intrinsic must fail closed instead of warming AJV with
+// attacker-controlled semantics.
+interface CapturedProtocolIntrinsics {
+  readonly arrayConstructor: typeof Array;
+  readonly arrayIsArray: typeof Array.isArray;
+  readonly arrayBufferIsView: typeof ArrayBuffer.isView;
+  readonly arrayPrototype: typeof Array.prototype;
+  readonly functionApply: typeof Function.prototype.apply;
+  readonly functionCall: typeof Function.prototype.call;
+  readonly freeze: typeof Object.freeze;
+  readonly objectCreate: typeof Object.create;
+  readonly objectDefineProperty: typeof Object.defineProperty;
+  readonly objectGetOwnPropertyDescriptor: typeof Object.getOwnPropertyDescriptor;
+  readonly objectGetPrototypeOf: typeof Object.getPrototypeOf;
+  readonly objectHasOwn: typeof Object.prototype.hasOwnProperty;
+  readonly objectIs: typeof Object.is;
+  readonly objectIsFrozen: typeof Object.isFrozen;
+  readonly objectKeys: typeof Object.keys;
+  readonly objectPrototype: typeof Object.prototype;
+  readonly objectSetPrototypeOf: typeof Object.setPrototypeOf;
+  readonly jsonStringify: typeof JSON.stringify;
+  readonly mapConstructor: typeof Map;
+  readonly numberConstructor: typeof Number;
+  readonly numberIsFinite: typeof Number.isFinite;
+  readonly numberIsSafeInteger: typeof Number.isSafeInteger;
+  readonly numberMaxSafeInteger: number;
+  readonly reflectApply: typeof Reflect.apply;
+  readonly reflectOwnKeys: typeof Reflect.ownKeys;
+  readonly regExpConstructor: typeof RegExp;
+  readonly regExpPrototype: typeof RegExp.prototype;
+  readonly regExpTest: typeof RegExp.prototype.test;
+  readonly regExpTestDescriptor: PropertyDescriptor;
+  readonly setConstructor: typeof Set;
+  readonly stringConstructor: typeof String;
+  readonly textEncoderConstructor: typeof TextEncoder;
+  readonly textEncoderEncode: typeof TextEncoder.prototype.encode;
+  readonly typedArrayByteLengthGetter: () => number;
+  readonly typedArrayTagGetter: () => string;
+  readonly uint8ArrayConstructor: typeof Uint8Array;
+  readonly weakSetConstructor: typeof WeakSet;
+}
+
+function captureProtocolIntrinsics(): CapturedProtocolIntrinsics | undefined {
+  try {
+    const objectConstructor = globalThis.Object;
+    const arrayConstructor = globalThis.Array;
+    const arrayBufferConstructor = globalThis.ArrayBuffer;
+    const functionConstructor = globalThis.Function;
+    const jsonObject = globalThis.JSON;
+    const numberConstructor = globalThis.Number;
+    const reflectObject = globalThis.Reflect;
+    const regExpConstructor = globalThis.RegExp;
+    const setConstructor = globalThis.Set;
+    const mapConstructor = globalThis.Map;
+    const stringConstructor = globalThis.String;
+    const textEncoderConstructor = globalThis.TextEncoder;
+    const uint8ArrayConstructor = globalThis.Uint8Array;
+    const weakSetConstructor = globalThis.WeakSet;
+    const objectGetPrototypeOf = objectConstructor.getPrototypeOf;
+    const objectGetOwnPropertyDescriptor = objectConstructor.getOwnPropertyDescriptor;
+    const objectDefineProperty = objectConstructor.defineProperty;
+    const objectCreate = objectConstructor.create;
+    const objectKeys = objectConstructor.keys;
+    const objectFreeze = objectConstructor.freeze;
+    const objectIsFrozen = objectConstructor.isFrozen;
+    const objectIs = objectConstructor.is;
+    const objectSetPrototypeOf = objectConstructor.setPrototypeOf;
+    const objectPrototype = objectConstructor.prototype;
+    const arrayIsArray = arrayConstructor.isArray;
+    const arrayBufferIsView = arrayBufferConstructor?.isView;
+    const arrayPrototype = arrayConstructor.prototype;
+    const reflectApply = reflectObject.apply;
+    const reflectOwnKeys = reflectObject.ownKeys;
+    const regExpPrototype = regExpConstructor?.prototype;
+    const regExpTestDescriptor =
+      regExpPrototype === undefined
+        ? undefined
+        : objectGetOwnPropertyDescriptor(regExpPrototype, 'test');
+    const regExpTest = regExpTestDescriptor?.value;
+    const functionCall = functionConstructor.prototype.call;
+    const functionApply = functionConstructor.prototype.apply;
+    const objectHasOwn = objectPrototype.hasOwnProperty;
+    const jsonStringify = jsonObject.stringify;
+    const numberIsFinite = numberConstructor.isFinite;
+    const numberIsSafeInteger = numberConstructor.isSafeInteger;
+    const numberMaxSafeInteger = numberConstructor.MAX_SAFE_INTEGER;
+    const textEncoderEncode = textEncoderConstructor?.prototype.encode;
+
+    if (
+      typeof objectGetPrototypeOf !== 'function' ||
+      typeof objectGetOwnPropertyDescriptor !== 'function' ||
+      typeof objectDefineProperty !== 'function' ||
+      typeof objectCreate !== 'function' ||
+      typeof objectKeys !== 'function' ||
+      typeof objectFreeze !== 'function' ||
+      typeof objectIsFrozen !== 'function' ||
+      typeof objectIs !== 'function' ||
+      typeof objectSetPrototypeOf !== 'function' ||
+      typeof arrayIsArray !== 'function' ||
+      typeof arrayBufferIsView !== 'function' ||
+      typeof reflectApply !== 'function' ||
+      typeof reflectOwnKeys !== 'function' ||
+      typeof functionCall !== 'function' ||
+      typeof functionApply !== 'function' ||
+      typeof objectHasOwn !== 'function' ||
+      typeof jsonStringify !== 'function' ||
+      typeof numberIsFinite !== 'function' ||
+      typeof numberIsSafeInteger !== 'function' ||
+      numberMaxSafeInteger !== 9007199254740991 ||
+      typeof textEncoderConstructor !== 'function' ||
+      typeof textEncoderEncode !== 'function' ||
+      typeof arrayConstructor !== 'function' ||
+      typeof uint8ArrayConstructor !== 'function' ||
+      typeof regExpConstructor !== 'function' ||
+      typeof regExpPrototype !== 'object' ||
+      regExpPrototype === null ||
+      typeof regExpTest !== 'function' ||
+      regExpTestDescriptor === undefined ||
+      regExpTestDescriptor.get !== undefined ||
+      regExpTestDescriptor.set !== undefined ||
+      typeof stringConstructor !== 'function' ||
+      typeof setConstructor !== 'function' ||
+      typeof mapConstructor !== 'function' ||
+      typeof weakSetConstructor !== 'function'
+    )
+      return undefined;
+
+    const probe = reflectApply(objectCreate, undefined, [null]) as Record<string, unknown>;
+    reflectApply(objectDefineProperty, undefined, [
+      probe,
+      'key',
+      {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: 'value',
+      },
+    ]);
+    const probeDescriptor = reflectApply(objectGetOwnPropertyDescriptor, undefined, [probe, 'key']);
+    const probeKeys = reflectApply(objectKeys, undefined, [probe]);
+    const probeOwnKeys = reflectApply(reflectOwnKeys, undefined, [probe]);
+    if (
+      reflectApply(objectGetPrototypeOf, undefined, [probe]) !== null ||
+      probeDescriptor?.value !== 'value' ||
+      probeKeys.length !== 1 ||
+      probeKeys[0] !== 'key' ||
+      probeOwnKeys.length !== 1 ||
+      probeOwnKeys[0] !== 'key' ||
+      reflectApply(objectHasOwn, probe, ['key']) !== true
+    )
+      return undefined;
+
+    const arrayProbe = new arrayConstructor(1);
+    if (
+      reflectApply(arrayIsArray, undefined, [arrayProbe]) !== true ||
+      reflectApply(arrayIsArray, undefined, [probe]) !== false ||
+      reflectApply(objectGetPrototypeOf, undefined, [arrayPrototype]) !== objectPrototype
+    )
+      return undefined;
+
+    const regExpProbe = new regExpConstructor('^a$');
+    if (
+      reflectApply(objectGetPrototypeOf, undefined, [regExpProbe]) !== regExpPrototype ||
+      reflectApply(regExpTest, regExpProbe, ['a']) !== true ||
+      reflectApply(regExpTest, regExpProbe, ['b']) !== false
+    )
+      return undefined;
+
+    const callProbe = () => 'call-probe';
+    const applyProbe = () => 'apply-probe';
+    if (
+      reflectApply(functionCall, callProbe, []) !== 'call-probe' ||
+      reflectApply(functionApply, applyProbe, [[]]) !== 'apply-probe' ||
+      reflectApply(reflectApply, undefined, [objectKeys, undefined, [probe]]).length !== 1 ||
+      reflectApply(jsonStringify, undefined, ['probe']) !== '"probe"' ||
+      reflectApply(numberIsFinite, undefined, [1]) !== true ||
+      reflectApply(numberIsSafeInteger, undefined, [1]) !== true
+    )
+      return undefined;
+
+    const frozenProbe = {};
+    reflectApply(objectFreeze, undefined, [frozenProbe]);
+    if (reflectApply(objectIsFrozen, undefined, [frozenProbe]) !== true) return undefined;
+
+    const typedArrayPrototype = reflectApply(objectGetPrototypeOf, undefined, [
+      uint8ArrayConstructor.prototype,
+    ]);
+    const typedArrayTagGetter = reflectApply(objectGetOwnPropertyDescriptor, undefined, [
+      typedArrayPrototype,
+      Symbol.toStringTag,
+    ])?.get;
+    const typedArrayByteLengthGetter = reflectApply(objectGetOwnPropertyDescriptor, undefined, [
+      typedArrayPrototype,
+      'byteLength',
+    ])?.get;
+    if (
+      typeof typedArrayTagGetter !== 'function' ||
+      typeof typedArrayByteLengthGetter !== 'function'
+    )
+      return undefined;
+
+    const matchesBytes = (value: unknown, expected: readonly number[]): boolean => {
+      try {
+        if (
+          reflectApply(typedArrayTagGetter, value, []) !== 'Uint8Array' ||
+          reflectApply(typedArrayByteLengthGetter, value, []) !== expected.length
+        )
+          return false;
+        for (let index = 0; index < expected.length; index += 1) {
+          if ((value as { readonly [index: number]: unknown })[index] !== expected[index])
+            return false;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const typedArrayProbe = new uint8ArrayConstructor(2);
+    if (
+      !matchesBytes(typedArrayProbe, [0, 0]) ||
+      reflectApply(arrayBufferIsView, undefined, [typedArrayProbe]) !== true
+    )
+      return undefined;
+    const textEncoder = new textEncoderConstructor();
+    const ascii = reflectApply(textEncoderEncode, textEncoder, ['Az']);
+    const utf8 = reflectApply(textEncoderEncode, textEncoder, ['é😀']);
+    if (
+      !matchesBytes(ascii, [0x41, 0x7a]) ||
+      !matchesBytes(utf8, [0xc3, 0xa9, 0xf0, 0x9f, 0x98, 0x80])
+    )
+      return undefined;
+
+    return {
+      arrayConstructor,
+      arrayIsArray,
+      arrayBufferIsView,
+      arrayPrototype,
+      functionApply,
+      functionCall,
+      freeze: objectFreeze,
+      objectCreate,
+      objectDefineProperty,
+      objectGetOwnPropertyDescriptor,
+      objectGetPrototypeOf,
+      objectHasOwn,
+      objectIs,
+      objectIsFrozen,
+      objectKeys,
+      objectPrototype,
+      objectSetPrototypeOf,
+      jsonStringify,
+      mapConstructor,
+      numberConstructor,
+      numberIsFinite,
+      numberIsSafeInteger,
+      numberMaxSafeInteger,
+      reflectApply,
+      reflectOwnKeys,
+      regExpConstructor,
+      regExpPrototype,
+      regExpTest,
+      regExpTestDescriptor,
+      setConstructor,
+      stringConstructor,
+      textEncoderConstructor,
+      textEncoderEncode,
+      typedArrayByteLengthGetter,
+      typedArrayTagGetter,
+      uint8ArrayConstructor,
+      weakSetConstructor,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+const capturedProtocolIntrinsics = captureProtocolIntrinsics();
+const protocolIntrinsicsReady = capturedProtocolIntrinsics !== undefined;
+const unavailableIntrinsic = (): never => {
+  return undefined as never;
+};
+const arrayConstructor = capturedProtocolIntrinsics?.arrayConstructor ?? globalThis.Array;
+const arrayIsArray =
+  capturedProtocolIntrinsics?.arrayIsArray ??
+  (unavailableIntrinsic as unknown as typeof Array.isArray);
+const arrayPrototype = capturedProtocolIntrinsics?.arrayPrototype ?? globalThis.Array.prototype;
+const functionCall =
+  capturedProtocolIntrinsics?.functionCall ??
+  (unavailableIntrinsic as unknown as typeof Function.prototype.call);
+const freeze =
+  capturedProtocolIntrinsics?.freeze ?? (unavailableIntrinsic as unknown as typeof Object.freeze);
+const objectCreate =
+  capturedProtocolIntrinsics?.objectCreate ??
+  (unavailableIntrinsic as unknown as typeof Object.create);
+const objectDefineProperty =
+  capturedProtocolIntrinsics?.objectDefineProperty ??
+  (unavailableIntrinsic as unknown as typeof Object.defineProperty);
+const objectGetOwnPropertyDescriptor =
+  capturedProtocolIntrinsics?.objectGetOwnPropertyDescriptor ??
+  (unavailableIntrinsic as unknown as typeof Object.getOwnPropertyDescriptor);
+const objectGetPrototypeOf =
+  capturedProtocolIntrinsics?.objectGetPrototypeOf ??
+  (unavailableIntrinsic as unknown as typeof Object.getPrototypeOf);
+const objectHasOwn =
+  capturedProtocolIntrinsics?.objectHasOwn ??
+  (unavailableIntrinsic as unknown as typeof Object.prototype.hasOwnProperty);
+const objectIs =
+  capturedProtocolIntrinsics?.objectIs ?? (unavailableIntrinsic as unknown as typeof Object.is);
+const objectKeys =
+  capturedProtocolIntrinsics?.objectKeys ?? (unavailableIntrinsic as unknown as typeof Object.keys);
+const objectPrototype =
+  capturedProtocolIntrinsics?.objectPrototype ?? ({} as typeof Object.prototype);
+const objectSetPrototypeOf =
+  capturedProtocolIntrinsics?.objectSetPrototypeOf ??
+  (unavailableIntrinsic as unknown as typeof Object.setPrototypeOf);
+const jsonStringify =
+  capturedProtocolIntrinsics?.jsonStringify ??
+  (unavailableIntrinsic as unknown as typeof JSON.stringify);
+const mapConstructor = capturedProtocolIntrinsics?.mapConstructor ?? globalThis.Map;
+const numberConstructor = capturedProtocolIntrinsics?.numberConstructor ?? globalThis.Number;
+const numberIsFinite =
+  capturedProtocolIntrinsics?.numberIsFinite ??
+  (unavailableIntrinsic as unknown as typeof Number.isFinite);
+const numberIsSafeInteger =
+  capturedProtocolIntrinsics?.numberIsSafeInteger ??
+  (unavailableIntrinsic as unknown as typeof Number.isSafeInteger);
+const numberMaxSafeInteger = capturedProtocolIntrinsics?.numberMaxSafeInteger ?? 0;
+const reflectApply =
+  capturedProtocolIntrinsics?.reflectApply ??
+  (unavailableIntrinsic as unknown as typeof Reflect.apply);
+const reflectOwnKeys =
+  capturedProtocolIntrinsics?.reflectOwnKeys ??
+  (unavailableIntrinsic as unknown as typeof Reflect.ownKeys);
+const regExpConstructor = capturedProtocolIntrinsics?.regExpConstructor;
+const regExpPrototype = capturedProtocolIntrinsics?.regExpPrototype;
+const regExpTest = capturedProtocolIntrinsics?.regExpTest;
+const regExpTestDescriptor = capturedProtocolIntrinsics?.regExpTestDescriptor;
+const setConstructor = capturedProtocolIntrinsics?.setConstructor ?? globalThis.Set;
+const stringConstructor = capturedProtocolIntrinsics?.stringConstructor ?? globalThis.String;
+const TextEncoderConstructor =
+  capturedProtocolIntrinsics?.textEncoderConstructor ??
+  (unavailableIntrinsic as unknown as typeof TextEncoder);
+const textEncoderEncode =
+  capturedProtocolIntrinsics?.textEncoderEncode ??
+  (unavailableIntrinsic as unknown as typeof TextEncoder.prototype.encode);
+const typedArrayByteLengthGetter = capturedProtocolIntrinsics?.typedArrayByteLengthGetter;
+const typedArrayTagGetter = capturedProtocolIntrinsics?.typedArrayTagGetter;
+const weakSetConstructor = capturedProtocolIntrinsics?.weakSetConstructor ?? globalThis.WeakSet;
+
+function encodeUtf8(value: string): Uint8Array {
+  const encoded = reflectApply(textEncoderEncode, new TextEncoderConstructor(), [value]);
+  if (typedArrayTagGetter === undefined || typedArrayByteLengthGetter === undefined)
+    throw new Error('UTF-8 encoder unavailable');
+  if (reflectApply(typedArrayTagGetter, encoded, []) !== 'Uint8Array')
+    throw new Error('UTF-8 encoder returned an invalid byte array');
+  reflectApply(typedArrayByteLengthGetter, encoded, []);
+  return encoded;
+}
+
+function exactByteLength(value: Uint8Array): number {
+  if (typedArrayByteLengthGetter === undefined || typedArrayTagGetter === undefined)
+    throw new Error('typed-array intrinsic unavailable');
+  if (reflectApply(typedArrayTagGetter, value, []) !== 'Uint8Array')
+    throw new Error('typed-array intrinsic unavailable');
+  return reflectApply(typedArrayByteLengthGetter, value, []);
+}
+
+function hasOwnProperty(value: Record<string, unknown>, property: string): boolean {
+  return reflectApply(objectHasOwn, value, [property]);
+}
+
+function safeRegExpTest(pattern: RegExp | undefined, value: string): boolean {
+  if (!protocolIntrinsicsReady || pattern === undefined || regExpTest === undefined) return false;
+  try {
+    return reflectApply(regExpTest, pattern, [value]) === true;
+  } catch {
+    return false;
+  }
+}
+
+const sanitizedTokenPattern =
+  regExpConstructor === undefined
+    ? undefined
+    : new regExpConstructor('^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$');
+
+/** Returns the exact UTF-8 length without exposing a prevalidated byte buffer. */
+export function canonicalUtf8ByteLength(value: string): number {
+  return exactByteLength(encodeUtf8(value));
+}
+
 /** The stable, vendor-neutral Agent Arcade Protocol namespace. */
 export const protocolId = 'io.github.danium.codeinvaders.aap' as const;
 export const protocolVersion = '1.0.0' as const;
@@ -59,8 +453,7 @@ export function opaqueText(value: string, maxLength = 256): OpaqueText {
 }
 
 export function sanitizedToken(value: string): SanitizedToken {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(value))
-    throw new Error('invalid sanitized token');
+  if (!safeRegExpTest(sanitizedTokenPattern, value)) throw new Error('invalid sanitized token');
   return value as SanitizedToken;
 }
 
@@ -382,13 +775,13 @@ export type PlanRevision = {
 /** Creates the branded exact-predecessor pair required by later plan revisions. */
 export function planRevision(revision: number, previousRevision: number): PlanRevision {
   if (
-    !Number.isSafeInteger(revision) ||
+    !numberIsSafeInteger(revision) ||
     revision < 2 ||
-    !Number.isSafeInteger(previousRevision) ||
+    !numberIsSafeInteger(previousRevision) ||
     previousRevision !== revision - 1
   )
     throw new Error('invalid plan revision');
-  return Object.freeze({ revision, previousRevision }) as PlanRevision;
+  return freeze({ revision, previousRevision }) as PlanRevision;
 }
 
 export type PlanReconciledData =
@@ -489,7 +882,7 @@ export type CoreEvent<T extends CoreEventType = CoreEventType> = CoreEventEnvelo
 export type AnyCoreEvent = { [T in CoreEventType]: CoreEvent<T> }[CoreEventType];
 
 /** Stable diagnostic-code registry used by documentation and integrations. */
-export const protocolDiagnosticCodes = Object.freeze([
+export const protocolDiagnosticCodes = freeze([
   'invalid-envelope',
   'invalid-scope',
   'invalid-data',
@@ -633,7 +1026,7 @@ const sanitizedTokenSchema = {
 const textSchema = opaqueTextSchema;
 const semverPattern =
   '^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$';
-const integerSchema = { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER };
+const integerSchema = { type: 'integer', minimum: 0, maximum: numberMaxSafeInteger };
 const enumSchema = (values: readonly string[]) => ({ type: 'string', enum: values });
 const supportSchema = enumSchema(['none', 'derived', 'observed']);
 const signalCapabilitySchema = {
@@ -1120,15 +1513,33 @@ export interface ProtocolSchemaCompiler {
 }
 
 function isKeywordRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !arrayIsArray(value);
 }
 
 function hasOwn(value: Record<string, unknown>, property: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, property);
+  return hasOwnProperty(value, property);
+}
+
+function tryDefineOwnProperty(
+  target: object,
+  property: PropertyKey,
+  descriptor: PropertyDescriptor,
+): boolean {
+  try {
+    if (protocolIntrinsicsReady) {
+      reflectApply(objectDefineProperty, undefined, [target, property, descriptor]);
+      return true;
+    }
+    if (!('value' in descriptor) || typeof property !== 'string') return false;
+    (target as Record<string, unknown>)[property] = descriptor.value;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function defineOwnArraySlot<T>(array: T[], index: number, value: T): void {
-  Object.defineProperty(array, String(index), {
+  tryDefineOwnProperty(array, stringConstructor(index), {
     configurable: true,
     enumerable: true,
     writable: true,
@@ -1137,7 +1548,14 @@ function defineOwnArraySlot<T>(array: T[], index: number, value: T): void {
 }
 
 function readOwnArraySlot<T>(array: readonly T[], index: number): T | undefined {
-  const descriptor = Object.getOwnPropertyDescriptor(array, String(index));
+  if (!protocolIntrinsicsReady) {
+    try {
+      return array[index];
+    } catch {
+      return undefined;
+    }
+  }
+  const descriptor = objectGetOwnPropertyDescriptor(array, stringConstructor(index));
   return descriptor !== undefined && 'value' in descriptor ? (descriptor.value as T) : undefined;
 }
 
@@ -1148,7 +1566,7 @@ function containsString(values: readonly string[], needle: string): boolean {
   return false;
 }
 
-const validPlanStatuses = new Set<string>();
+const validPlanStatuses = new setConstructor<string>();
 validPlanStatuses.add('pending');
 validPlanStatuses.add('in_progress');
 validPlanStatuses.add('blocked');
@@ -1158,22 +1576,24 @@ validPlanStatuses.add('denied');
 validPlanStatuses.add('cancelled');
 validPlanStatuses.add('abandoned');
 validPlanStatuses.add('unknown');
-const validPlanIdentityBases = new Set<string>();
+const validPlanIdentityBases = new setConstructor<string>();
 validPlanIdentityBases.add('stable-native-id');
 validPlanIdentityBases.add('exact-normalized-identity');
 validPlanIdentityBases.add('exact-ordinal-continuity');
 validPlanIdentityBases.add('new-unmatched');
-const terminalPlanStatuses = new Set<string>();
+const terminalPlanStatuses = new setConstructor<string>();
 terminalPlanStatuses.add('completed');
 terminalPlanStatuses.add('failed');
 terminalPlanStatuses.add('denied');
 terminalPlanStatuses.add('cancelled');
 terminalPlanStatuses.add('abandoned');
 terminalPlanStatuses.add('unknown');
-const protocolIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const protocolIdPatternSource = '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$';
+const protocolIdPattern =
+  regExpConstructor === undefined ? undefined : new regExpConstructor(protocolIdPatternSource);
 
 function isSafeNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === 'number' && numberIsSafeInteger(value) && value >= 0;
 }
 
 /** Returns true for malformed data so ordinary JSON Schema validation owns type errors. */
@@ -1214,7 +1634,7 @@ function validateCapabilityCoherenceKeyword(mode: unknown, value: unknown): bool
 
 /** Returns true for malformed data so ordinary JSON Schema validation owns type errors. */
 function validatePlanItemsKeyword(schema: boolean, value: unknown): boolean {
-  if (!schema || !isKeywordRecord(value) || !Array.isArray(value.items)) return true;
+  if (!schema || !isKeywordRecord(value) || !arrayIsArray(value.items)) return true;
 
   const items = value.items;
   const parsedItems: Array<{
@@ -1228,7 +1648,7 @@ function validatePlanItemsKeyword(schema: boolean, value: unknown): boolean {
     if (
       !isKeywordRecord(item) ||
       typeof item.taskId !== 'string' ||
-      !protocolIdPattern.test(item.taskId) ||
+      !safeRegExpTest(protocolIdPattern, item.taskId) ||
       typeof item.status !== 'string' ||
       !validPlanStatuses.has(item.status) ||
       !isSafeNonNegativeInteger(item.ordinal) ||
@@ -1244,7 +1664,7 @@ function validatePlanItemsKeyword(schema: boolean, value: unknown): boolean {
     });
   }
 
-  const ids = new Set<string>();
+  const ids = new setConstructor<string>();
   for (let index = 0; index < parsedItems.length; index += 1) {
     const item = readOwnArraySlot(parsedItems, index);
     if (!item) return true;
@@ -1274,14 +1694,14 @@ function validatePlanRevisionKeyword(schema: boolean, value: unknown): boolean {
   if (revision === 1) {
     if (!hasOwn(value, 'previousRevision')) return true;
     const previousRevision = value.previousRevision;
-    return typeof previousRevision !== 'number' || !Number.isSafeInteger(previousRevision);
+    return typeof previousRevision !== 'number' || !numberIsSafeInteger(previousRevision);
   }
-  if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 2) return true;
+  if (typeof revision !== 'number' || !numberIsSafeInteger(revision) || revision < 2) return true;
   if (!hasOwn(value, 'previousRevision')) return false;
   const previousRevision = value.previousRevision;
   if (
     typeof previousRevision !== 'number' ||
-    !Number.isSafeInteger(previousRevision) ||
+    !numberIsSafeInteger(previousRevision) ||
     previousRevision < 0
   )
     return true;
@@ -1298,13 +1718,13 @@ function validateCorrectionReferencesKeyword(schema: boolean, value: unknown): b
     return true;
   if (
     typeof data.correctedEventId !== 'string' ||
-    !protocolIdPattern.test(data.correctedEventId) ||
+    !safeRegExpTest(protocolIdPattern, data.correctedEventId) ||
     typeof data.correctedEntityId !== 'string' ||
-    !protocolIdPattern.test(data.correctedEntityId) ||
+    !safeRegExpTest(protocolIdPattern, data.correctedEntityId) ||
     typeof semantic.correctionOfEventId !== 'string' ||
-    !protocolIdPattern.test(semantic.correctionOfEventId) ||
+    !safeRegExpTest(protocolIdPattern, semantic.correctionOfEventId) ||
     typeof semantic.correctionOfEntityId !== 'string' ||
-    !protocolIdPattern.test(semantic.correctionOfEntityId)
+    !safeRegExpTest(protocolIdPattern, semantic.correctionOfEntityId)
   )
     return true;
   return (
@@ -1362,7 +1782,7 @@ const functionalKeywords: readonly KeywordDefinition[] = [
   planItemsKeyword,
   noTimeoutSuccessKeyword,
 ];
-const allProtocolKeywords: KeywordDefinition[] = new Array(
+const allProtocolKeywords: KeywordDefinition[] = new arrayConstructor(
   functionalKeywords.length + annotationKeywords.length,
 );
 for (let index = 0; index < functionalKeywords.length; index += 1) {
@@ -1375,7 +1795,25 @@ for (let index = 0; index < annotationKeywords.length; index += 1) {
   if (definition === undefined) throw new Error('invalid protocol keyword registry');
   defineOwnArraySlot(allProtocolKeywords, functionalKeywords.length + index, definition);
 }
-const functionalKeywordNames = new Set<string>();
+
+// AJV's generated validators call executable keyword functions through their
+// `.call` property. Give those functions an own, immutable-at-runtime target
+// so a later Function.prototype.call replacement cannot redirect validation.
+function captureAjvKeywordCall(target: object): void {
+  tryDefineOwnProperty(target, 'call', {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: functionCall,
+  });
+}
+
+captureAjvKeywordCall(validatePlanRevisionKeyword);
+captureAjvKeywordCall(validateCorrectionReferencesKeyword);
+captureAjvKeywordCall(validateCapabilityCoherenceKeyword);
+captureAjvKeywordCall(validatePlanItemsKeyword);
+captureAjvKeywordCall(validateNoTimeoutSuccessKeyword);
+const functionalKeywordNames = new setConstructor<string>();
 for (let index = 0; index < functionalKeywords.length; index += 1) {
   const definition = readOwnArraySlot(functionalKeywords, index);
   if (definition === undefined) throw new Error('invalid protocol keyword registry');
@@ -1407,7 +1845,7 @@ export function registerProtocolSchemaKeywords(instance: ProtocolSchemaCompiler)
   }
 }
 
-const semanticRequired = new Set<CoreEventType>();
+const semanticRequired = new setConstructor<CoreEventType>();
 semanticRequired.add('source.capability.changed');
 semanticRequired.add('telemetry.gap');
 semanticRequired.add('turn.quiescent');
@@ -1578,7 +2016,7 @@ const terminalTaskStatuses: readonly TerminalTaskStatus[] = [
   'abandoned',
   'unknown',
 ];
-const taskCorrectedOneOfRules: object[] = new Array(terminalTaskStatuses.length + 1);
+const taskCorrectedOneOfRules: object[] = new arrayConstructor(terminalTaskStatuses.length + 1);
 defineOwnArraySlot(taskCorrectedOneOfRules, 0, {
   type: 'object',
   properties: {
@@ -1705,7 +2143,7 @@ const dataRules: Partial<Record<CoreEventType, readonly object[]>> = {
 };
 
 function requiredEnvelopeProperties(type: CoreEventType): string[] {
-  const required = new Array<string>(12 + (semanticRequired.has(type) ? 1 : 0));
+  const required = new arrayConstructor<string>(12 + (semanticRequired.has(type) ? 1 : 0));
   defineOwnArraySlot(required, 0, 'spec');
   defineOwnArraySlot(required, 1, 'version');
   defineOwnArraySlot(required, 2, 'eventId');
@@ -1725,7 +2163,7 @@ function requiredEnvelopeProperties(type: CoreEventType): string[] {
 }
 
 function requiredScopeProperties(type: CoreEventType): string[] {
-  const required = new Array<string>(1 + scopeRules[type].length);
+  const required = new arrayConstructor<string>(1 + scopeRules[type].length);
   defineOwnArraySlot(required, 0, 'workspaceId');
   let length = 1;
   for (let index = 0; index < scopeRules[type].length; index += 1) {
@@ -1747,7 +2185,7 @@ function combinedSchemaRules(
   if (semantic === undefined && data === undefined) return undefined;
   const semanticLength = semantic?.length ?? 0;
   const dataLength = data?.length ?? 0;
-  const combined = new Array<object>(semanticLength + dataLength);
+  const combined = new arrayConstructor<object>(semanticLength + dataLength);
   let outputIndex = 0;
   for (let index = 0; index < semanticLength; index += 1) {
     const rule = readOwnArraySlot(semantic as readonly object[], index);
@@ -1890,7 +2328,7 @@ const coreEventSchemaRecord = detachedObject<Record<CoreEventType, Record<string
 for (let index = 0; index < coreTypes.length; index += 1) {
   const type = readOwnArraySlot(coreTypes, index);
   if (type === undefined) throw new Error('invalid core event registry');
-  Object.defineProperty(coreEventSchemaRecord, type, {
+  tryDefineOwnProperty(coreEventSchemaRecord, type, {
     configurable: true,
     enumerable: true,
     writable: true,
@@ -1900,8 +2338,10 @@ for (let index = 0; index < coreTypes.length; index += 1) {
 export const coreEventSchemas = coreEventSchemaRecord as Readonly<
   Record<CoreEventType, Record<string, unknown>>
 >;
+const extensionPatternSource =
+  '^x\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$';
 const extensionPattern =
-  /^x\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+  regExpConstructor === undefined ? undefined : new regExpConstructor(extensionPatternSource);
 
 export interface ExtensionMetadata {
   readonly fallback: 'preserve-in-journal';
@@ -1952,7 +2392,7 @@ const extensionEventSchema = {
     spec: { const: protocolId },
     version: { type: 'string', pattern: semverPattern },
     eventId: idSchema,
-    type: { type: 'string', pattern: extensionPattern.source },
+    type: { type: 'string', pattern: extensionPatternSource },
     occurredAt: { type: 'string', format: 'date-time' },
     observedAt: { type: 'string', format: 'date-time' },
     sequence: integerSchema,
@@ -2009,20 +2449,41 @@ interface AjvRuntime {
   readonly extensionValidator: ValidateFunction;
 }
 let ajvRuntime: AjvRuntime | undefined;
+let ajvInitializationFailed = false;
 
 function getAjvRuntime(): AjvRuntime {
   if (ajvRuntime !== undefined) return ajvRuntime;
-  const ajv = new AjvConstructor({ strict: false, allErrors: false, validateFormats: true });
-  addFormats(ajv);
-  registerProtocolSchemaKeywords(ajv);
-  const validators = new Map<CoreEventType, ValidateFunction>();
-  for (let index = 0; index < coreTypes.length; index += 1) {
-    const type = readOwnArraySlot(coreTypes, index);
-    if (type === undefined) throw new Error('invalid core event registry');
-    validators.set(type, ajv.compile(coreEventSchemas[type]));
+  if (!protocolIntrinsicsReady) {
+    ajvInitializationFailed = true;
+    throw new Error('protocol validators unavailable');
   }
-  ajvRuntime = { ajv, validators, extensionValidator: ajv.compile(extensionEventSchema) };
-  return ajvRuntime;
+  if (ajvInitializationFailed) throw new Error('protocol validators unavailable');
+  try {
+    const ajv = new AjvConstructor({ strict: false, allErrors: false, validateFormats: true });
+    addFormats(ajv);
+    registerProtocolSchemaKeywords(ajv);
+    const validators = new mapConstructor<CoreEventType, ValidateFunction>();
+    for (let index = 0; index < coreTypes.length; index += 1) {
+      const type = readOwnArraySlot(coreTypes, index);
+      if (type === undefined) throw new Error('invalid core event registry');
+      validators.set(type, ajv.compile(coreEventSchemas[type]));
+    }
+    const runtime = { ajv, validators, extensionValidator: ajv.compile(extensionEventSchema) };
+    ajvRuntime = runtime;
+    return runtime;
+  } catch {
+    ajvInitializationFailed = true;
+    throw new Error('protocol validator initialization failed');
+  }
+}
+
+// Compile while the importing realm is still healthy. If the realm was
+// polluted before evaluation, importing the protocol remains safe, but every
+// later validation attempt fails closed instead of compiling on demand.
+try {
+  getAjvRuntime();
+} catch {
+  ajvInitializationFailed = true;
 }
 
 const diagnostic = (
@@ -2042,17 +2503,87 @@ const diagnostic = (
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== 'object' || value === null) return false;
   try {
-    return !Array.isArray(value);
+    return !arrayIsArray(value);
   } catch {
     return false;
   }
 };
+const semverPatternMatcher =
+  regExpConstructor === undefined ? undefined : new regExpConstructor(semverPattern);
 const semver = (value: unknown): value is string =>
-  typeof value === 'string' && new RegExp(semverPattern).test(value);
+  typeof value === 'string' && safeRegExpTest(semverPatternMatcher, value);
 const safeMajor = (version: string): number | undefined => {
-  const major = Number(version.split('.')[0]);
-  return Number.isSafeInteger(major) && major >= 0 && major <= 9999 ? major : undefined;
+  const major = numberConstructor(version.split('.')[0]);
+  return numberIsSafeInteger(major) && major >= 0 && major <= 9999 ? major : undefined;
 };
+
+function validExtensionEnvelope(value: Record<string, unknown>): boolean {
+  return runAjvValidator(getAjvRuntime().extensionValidator, value);
+}
+
+/**
+ * AJV's generated functions contain a direct Array.isArray reference. Keep
+ * that third-party execution on the captured target even if the host replaces
+ * the global property after protocol import, and restore its exact descriptor
+ * before returning to caller code.
+ */
+function runAjvValidator(validator: ValidateFunction, value: unknown): boolean {
+  let arrayDescriptor: PropertyDescriptor | undefined;
+  let regExpDescriptor: PropertyDescriptor | undefined;
+  let valid = false;
+  let arrayRestored = false;
+  let regExpRestored = false;
+  try {
+    if (regExpPrototype === undefined || regExpTestDescriptor === undefined) return false;
+    arrayDescriptor = objectGetOwnPropertyDescriptor(arrayConstructor, 'isArray');
+    regExpDescriptor = objectGetOwnPropertyDescriptor(regExpPrototype, 'test');
+    if (
+      arrayDescriptor === undefined ||
+      arrayDescriptor.configurable !== true ||
+      arrayDescriptor.writable !== true ||
+      regExpDescriptor === undefined ||
+      regExpDescriptor.configurable !== true ||
+      regExpDescriptor.writable !== true
+    )
+      return false;
+    reflectApply(objectDefineProperty, undefined, [
+      arrayConstructor,
+      'isArray',
+      {
+        configurable: arrayDescriptor.configurable,
+        enumerable: arrayDescriptor.enumerable,
+        writable: arrayDescriptor.writable,
+        value: arrayIsArray,
+      },
+    ]);
+    reflectApply(objectDefineProperty, undefined, [regExpPrototype, 'test', regExpTestDescriptor]);
+    valid = validator(value) === true;
+  } catch {
+    // The false initializer preserves fail-closed behavior.
+  } finally {
+    if (regExpDescriptor !== undefined && regExpPrototype !== undefined) {
+      try {
+        reflectApply(objectDefineProperty, undefined, [regExpPrototype, 'test', regExpDescriptor]);
+        regExpRestored = true;
+      } catch {
+        // A failed restore makes the realm unsafe for this validation call.
+      }
+    }
+    if (arrayDescriptor !== undefined) {
+      try {
+        reflectApply(objectDefineProperty, undefined, [
+          arrayConstructor,
+          'isArray',
+          arrayDescriptor,
+        ]);
+        arrayRestored = true;
+      } catch {
+        // A failed restore makes the realm unsafe for this validation call.
+      }
+    }
+  }
+  return valid && arrayRestored && regExpRestored;
+}
 
 interface ValidationSnapshotContext {
   readonly ancestors: WeakSet<object>;
@@ -2139,7 +2670,7 @@ type ValidationPrototypeResult = ValidationPrototypeSuccess | ValidationSnapshot
 
 function safeSnapshotPrototype(value: object, path: readonly string[]): ValidationPrototypeResult {
   try {
-    return { ok: true, prototype: Object.getPrototypeOf(value) };
+    return { ok: true, prototype: objectGetPrototypeOf(value) };
   } catch {
     return snapshotFailure('invalid-envelope', path);
   }
@@ -2150,7 +2681,7 @@ function safeSnapshotKeys(
   path: readonly string[],
 ): readonly (string | symbol)[] | ValidationSnapshotFailure {
   try {
-    return Reflect.ownKeys(value);
+    return reflectOwnKeys(value);
   } catch {
     return snapshotFailure('invalid-envelope', path);
   }
@@ -2162,7 +2693,7 @@ function safeSnapshotDescriptor(
   path: readonly string[],
 ): PropertyDescriptor | undefined | ValidationSnapshotFailure {
   try {
-    return Object.getOwnPropertyDescriptor(value, key);
+    return objectGetOwnPropertyDescriptor(value, key);
   } catch {
     return snapshotFailure('invalid-envelope', path);
   }
@@ -2170,15 +2701,24 @@ function safeSnapshotDescriptor(
 
 /** Detached objects never consult a potentially polluted global prototype. */
 function detachedObject<T extends object = Record<string, unknown>>(): T {
-  return Object.create(null) as T;
+  if (!protocolIntrinsicsReady) return {} as T;
+  try {
+    return objectCreate(null) as T;
+  } catch {
+    return {} as T;
+  }
 }
 
 function detachedArray<T>(length: number): T[] {
-  return new Array<T>(length);
+  try {
+    return new arrayConstructor<T>(length);
+  } catch {
+    return [] as T[];
+  }
 }
 
 function appendPath<T>(path: readonly T[], part: T): T[] {
-  const output = new Array<T>(path.length + 1);
+  const output = detachedArray<T>(path.length + 1);
   for (let index = 0; index < path.length; index += 1) {
     const value = readOwnArraySlot(path, index);
     if (value === undefined) throw new Error('invalid structural path');
@@ -2223,7 +2763,7 @@ function snapshotValidationValue(
     return { ok: true, value };
   }
   if (typeof value === 'number') {
-    return Number.isFinite(value)
+    return numberIsFinite(value)
       ? { ok: true, value }
       : snapshotFailure(snapshotInvalidValueCode(path), path);
   }
@@ -2232,14 +2772,14 @@ function snapshotValidationValue(
 
   let isArray: boolean;
   try {
-    isArray = Array.isArray(value);
+    isArray = arrayIsArray(value);
   } catch {
     return snapshotFailure('invalid-envelope', path);
   }
   const prototypeResult = safeSnapshotPrototype(value, path);
   if (!prototypeResult.ok) return prototypeResult;
   const prototype = prototypeResult.prototype;
-  const expectedPrototype = isArray ? Array.prototype : Object.prototype;
+  const expectedPrototype = isArray ? arrayPrototype : objectPrototype;
   if (prototype !== expectedPrototype && prototype !== null)
     return snapshotFailure('invalid-envelope', path);
   if (context.ancestors.has(value)) return snapshotFailure(snapshotInvalidValueCode(path), path);
@@ -2259,7 +2799,7 @@ function snapshotValidationValue(
       }
       if (
         !hasOwn(lengthDescriptor as Record<string, unknown>, 'value') ||
-        !Number.isSafeInteger(lengthDescriptor.value) ||
+        !numberIsSafeInteger(lengthDescriptor.value) ||
         lengthDescriptor.value < 0 ||
         lengthDescriptor.value > MAX_CANONICAL_ARRAY_LENGTH
       )
@@ -2278,7 +2818,7 @@ function snapshotValidationValue(
         }
         if (!isCanonicalArrayIndex(key))
           return snapshotFailure(snapshotInvalidValueCode(path), path);
-        const index = Number(key);
+        const index = numberConstructor(key);
         if (index >= length || readOwnArraySlot(present, index) === true)
           return snapshotFailure(snapshotInvalidValueCode(path), path);
         const propertyPath = appendPath(path, key);
@@ -2301,7 +2841,7 @@ function snapshotValidationValue(
         if (readOwnArraySlot(present, index) !== true)
           return snapshotFailure(snapshotInvalidValueCode(path), path);
       try {
-        Object.freeze(output);
+        freeze(output);
       } catch {
         return snapshotFailure('invalid-envelope', path);
       }
@@ -2327,18 +2867,21 @@ function snapshotValidationValue(
       const child = snapshotValidationValue(descriptor.value, propertyPath, depth + 1, context);
       if (!child.ok) return child;
       try {
-        Object.defineProperty(output, key, {
-          configurable: true,
-          enumerable: true,
-          writable: true,
-          value: child.value,
-        });
+        if (
+          !tryDefineOwnProperty(output, key, {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: child.value,
+          })
+        )
+          return snapshotFailure('invalid-envelope', path);
       } catch {
         return snapshotFailure('invalid-envelope', path);
       }
     }
     try {
-      Object.freeze(output);
+      freeze(output);
     } catch {
       return snapshotFailure('invalid-envelope', path);
     }
@@ -2350,7 +2893,7 @@ function snapshotValidationValue(
 
 function createValidationSnapshot(input: unknown): ValidationSnapshotResult {
   const snapshot = snapshotValidationValue(input, [], 0, {
-    ancestors: new WeakSet<object>(),
+    ancestors: new weakSetConstructor<object>(),
     nodes: 0,
     stringCodeUnits: 0,
   });
@@ -2358,7 +2901,7 @@ function createValidationSnapshot(input: unknown): ValidationSnapshotResult {
   if (snapshot.value === null || typeof snapshot.value !== 'object')
     return snapshotFailure('invalid-envelope', []);
   try {
-    if (Array.isArray(snapshot.value)) return snapshotFailure('invalid-envelope', []);
+    if (arrayIsArray(snapshot.value)) return snapshotFailure('invalid-envelope', []);
   } catch {
     return snapshotFailure('invalid-envelope', []);
   }
@@ -2369,22 +2912,15 @@ function serializedBounds(
   value: unknown,
   byteLimit = MAX_EVENT_BYTES,
 ): { bytes?: number; depth?: number } | ProtocolDiagnostic {
-  const seen = new WeakSet<object>();
+  const seen = new weakSetConstructor<object>();
   let maxDepth = 0;
   let nodes = 0;
   let failure: ProtocolDiagnostic | undefined;
   let bytes = 0;
-  let encoder: TextEncoder;
-  try {
-    encoder = new TextEncoder();
-  } catch {
-    return diagnostic('invalid-envelope');
-  }
-
   const append = (fragment: string): void => {
     if (failure) return;
     try {
-      const fragmentBytes = encoder.encode(fragment).byteLength;
+      const fragmentBytes = canonicalUtf8ByteLength(fragment);
       if (fragmentBytes > byteLimit - bytes) {
         failure = diagnostic('event-too-large', 'size');
         return;
@@ -2418,7 +2954,7 @@ function serializedBounds(
     if (typeof item === 'string') {
       let encoded: string | undefined;
       try {
-        encoded = JSON.stringify(item);
+        encoded = reflectApply(jsonStringify, undefined, [item]);
       } catch {
         failure = diagnostic('invalid-envelope');
         return;
@@ -2431,11 +2967,11 @@ function serializedBounds(
       return;
     }
     if (typeof item === 'number') {
-      if (!Number.isFinite(item)) {
+      if (!numberIsFinite(item)) {
         failure = diagnostic('invalid-envelope');
         return;
       }
-      append(String(item));
+      append(stringConstructor(item));
       return;
     }
     if (typeof item !== 'object') {
@@ -2450,7 +2986,7 @@ function serializedBounds(
 
     let isArray: boolean;
     try {
-      isArray = Array.isArray(item);
+      isArray = arrayIsArray(item);
     } catch {
       failure = diagnostic('invalid-envelope');
       return;
@@ -2458,7 +2994,7 @@ function serializedBounds(
     if (isArray) {
       let lengthDescriptor: PropertyDescriptor | undefined;
       try {
-        lengthDescriptor = Object.getOwnPropertyDescriptor(item, 'length');
+        lengthDescriptor = objectGetOwnPropertyDescriptor(item, 'length');
       } catch {
         failure = diagnostic('invalid-envelope');
         return;
@@ -2466,7 +3002,7 @@ function serializedBounds(
       if (
         lengthDescriptor === undefined ||
         !hasOwn(lengthDescriptor as Record<string, unknown>, 'value') ||
-        !Number.isSafeInteger(lengthDescriptor.value) ||
+        !numberIsSafeInteger(lengthDescriptor.value) ||
         lengthDescriptor.value < 0 ||
         lengthDescriptor.value > MAX_CANONICAL_ARRAY_LENGTH
       ) {
@@ -2478,7 +3014,7 @@ function serializedBounds(
       for (let index = 0; index < length; index += 1) {
         let descriptor: PropertyDescriptor | undefined;
         try {
-          descriptor = Object.getOwnPropertyDescriptor(item, String(index));
+          descriptor = objectGetOwnPropertyDescriptor(item, stringConstructor(index));
         } catch {
           failure = diagnostic('invalid-envelope');
           return;
@@ -2501,7 +3037,7 @@ function serializedBounds(
 
     let keys: string[];
     try {
-      keys = Object.keys(item);
+      keys = reflectApply(objectKeys, undefined, [item]);
     } catch {
       failure = diagnostic('invalid-envelope');
       return;
@@ -2519,7 +3055,7 @@ function serializedBounds(
       }
       let descriptor: PropertyDescriptor | undefined;
       try {
-        descriptor = Object.getOwnPropertyDescriptor(item, key);
+        descriptor = objectGetOwnPropertyDescriptor(item, key);
       } catch {
         failure = diagnostic('invalid-envelope');
         return;
@@ -2534,7 +3070,7 @@ function serializedBounds(
       }
       let encodedKey: string | undefined;
       try {
-        encodedKey = JSON.stringify(key);
+        encodedKey = reflectApply(jsonStringify, undefined, [key]);
       } catch {
         failure = diagnostic('invalid-envelope');
         return;
@@ -2669,7 +3205,7 @@ function validateSemantics(
     const previous = data.previousRevision as number | undefined;
     if (
       data.complete !== true ||
-      !Number.isSafeInteger(revision) ||
+      !numberIsSafeInteger(revision) ||
       revision < 1 ||
       (revision === 1 ? hasOwn(data, 'previousRevision') : previous !== revision - 1) ||
       !validatePlanItemsKeyword(true, data)
@@ -2680,8 +3216,9 @@ function validateSemantics(
 }
 
 export function validateEvent(input: unknown): ValidationResult {
+  if (!protocolIntrinsicsReady || ajvInitializationFailed)
+    return { status: 'rejected', diagnostics: [diagnostic('invalid-envelope')] };
   try {
-    const runtime = getAjvRuntime();
     const snapshotResult = createValidationSnapshot(input);
     if (!snapshotResult.ok) return { status: 'rejected', diagnostics: [snapshotResult.diagnostic] };
     const event = snapshotResult.value as Record<string, unknown>;
@@ -2707,7 +3244,7 @@ export function validateEvent(input: unknown): ValidationResult {
     if (!containsString(coreTypes, type)) {
       if (!type.startsWith('x.'))
         return { status: 'rejected', diagnostics: [diagnostic('unknown-event', 'type')] };
-      if (!extensionPattern.test(type))
+      if (!safeRegExpTest(extensionPattern, type))
         return { status: 'rejected', diagnostics: [diagnostic('invalid-extension', 'type')] };
       const extension = event.extension;
       if (
@@ -2724,7 +3261,7 @@ export function validateEvent(input: unknown): ValidationResult {
         ((extensionBytes as { bytes?: number }).bytes ?? 0) > MAX_EXTENSION_BYTES
       )
         return { status: 'rejected', diagnostics: [diagnostic('event-too-large', 'size')] };
-      const extensionValid = runtime.extensionValidator(event);
+      const extensionValid = validExtensionEnvelope(event);
       if (!extensionValid)
         return {
           status: 'rejected',
@@ -2737,8 +3274,9 @@ export function validateEvent(input: unknown): ValidationResult {
       };
     }
     const eventType = type as CoreEventType;
+    const runtime = getAjvRuntime();
     const validator = runtime.validators.get(eventType);
-    const valid = validator?.(event);
+    const valid = validator === undefined ? false : runAjvValidator(validator, event);
     if (!valid)
       return {
         status: 'rejected',
@@ -2765,7 +3303,7 @@ export function isCoreEvent(value: unknown): value is AnyCoreEvent {
 export function compileCoreEventSchemas(): readonly ValidateFunction[] {
   const runtime = getAjvRuntime();
   registerProtocolSchemaKeywords(runtime.ajv);
-  const compiled = new Array<ValidateFunction>(coreTypes.length);
+  const compiled = new arrayConstructor<ValidateFunction>(coreTypes.length);
   for (let index = 0; index < coreTypes.length; index += 1) {
     const type = readOwnArraySlot(coreTypes, index);
     if (type === undefined) throw new Error('invalid core event registry');
@@ -2859,7 +3397,7 @@ export class CanonicalSerializationError extends Error {
     readonly path?: string,
   ) {
     super(`canonical serialization failed: ${code}${path ? ` at ${path}` : ''}`);
-    Object.setPrototypeOf(this, new.target.prototype);
+    objectSetPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -2890,7 +3428,7 @@ interface NormalizationContext {
 }
 
 const MAX_SERIALIZATION_ERROR_PATH = 128;
-const authenticCanonicalSerializationErrors = new WeakSet<CanonicalSerializationError>();
+const authenticCanonicalSerializationErrors = new weakSetConstructor<CanonicalSerializationError>();
 
 function codeUnitCompare(left: string, right: string): number {
   const length = Math.min(left.length, right.length);
@@ -2920,7 +3458,7 @@ function createAuthenticCanonicalSerializationError(
 ): CanonicalSerializationError {
   const error = new CanonicalSerializationError(code, formatSerializationPath(path));
   authenticCanonicalSerializationErrors.add(error);
-  Object.freeze(error);
+  freeze(error);
   return error;
 }
 
@@ -2953,7 +3491,7 @@ function safeIsArray(
   code: CanonicalSerializationErrorCode = 'invalid-json-value',
 ): boolean {
   try {
-    return Array.isArray(value);
+    return arrayIsArray(value);
   } catch {
     serializationFailure(code, path);
   }
@@ -2965,7 +3503,7 @@ function safeOwnKeys(
   code: CanonicalSerializationErrorCode,
 ): readonly (string | symbol)[] {
   try {
-    return Reflect.ownKeys(value);
+    return reflectOwnKeys(value);
   } catch {
     serializationFailure(code, path);
   }
@@ -2978,7 +3516,7 @@ function safeOwnPropertyDescriptor(
   code: CanonicalSerializationErrorCode,
 ): PropertyDescriptor | undefined {
   try {
-    return Object.getOwnPropertyDescriptor(value, key);
+    return objectGetOwnPropertyDescriptor(value, key);
   } catch {
     serializationFailure(code, path);
   }
@@ -2990,7 +3528,7 @@ function safePrototype(
   code: CanonicalSerializationErrorCode,
 ): object | null {
   try {
-    return Object.getPrototypeOf(value);
+    return objectGetPrototypeOf(value);
   } catch {
     serializationFailure(code, path);
   }
@@ -3004,7 +3542,7 @@ function requirePlainObject(
   if (value === null || typeof value !== 'object' || safeIsArray(value, path, code))
     serializationFailure(code, path);
   const prototype = safePrototype(value, path, code);
-  if (prototype !== Object.prototype && prototype !== null)
+  if (prototype !== objectPrototype && prototype !== null)
     serializationFailure(
       code === 'invalid-json-value' || code === 'invalid-entity-id'
         ? 'unsupported-prototype'
@@ -3061,7 +3599,7 @@ function snapshotObject(
       path,
     );
   }
-  const properties: PropertySnapshot[] = new Array<PropertySnapshot>(keys.length);
+  const properties: PropertySnapshot[] = new arrayConstructor<PropertySnapshot>(keys.length);
   for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
     const key = readOwnArraySlot(keys, keyIndex);
     if (typeof key !== 'string')
@@ -3085,8 +3623,13 @@ function snapshotObject(
 }
 
 function isCanonicalArrayIndex(key: string): boolean {
-  const index = Number(key);
-  return Number.isSafeInteger(index) && index >= 0 && index < 2 ** 32 - 1 && String(index) === key;
+  const index = numberConstructor(key);
+  return (
+    numberIsSafeInteger(index) &&
+    index >= 0 &&
+    index < 2 ** 32 - 1 &&
+    stringConstructor(index) === key
+  );
 }
 
 function snapshotArray(
@@ -3097,10 +3640,10 @@ function snapshotArray(
   if (!safeIsArray(value, path, code)) serializationFailure(code, path);
   const arrayValue = value as object;
   const prototype = safePrototype(arrayValue, path, code);
-  if (prototype !== Array.prototype && prototype !== null)
+  if (prototype !== arrayPrototype && prototype !== null)
     serializationFailure(code === 'invalid-options' ? code : 'unsupported-prototype', path);
   const lengthDescriptor = safeOwnPropertyDescriptor(arrayValue, 'length', path, code);
-  if (!isDataDescriptor(lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value))
+  if (!isDataDescriptor(lengthDescriptor) || !numberIsSafeInteger(lengthDescriptor.value))
     serializationFailure(code, path);
   const length = lengthDescriptor.value;
   if (length < 0 || length > MAX_CANONICAL_ARRAY_LENGTH)
@@ -3119,7 +3662,7 @@ function snapshotArray(
     if (key === 'length') continue;
     if (!isCanonicalArrayIndex(key))
       serializationFailure(code === 'invalid-options' ? code : 'unsupported-property', path);
-    const index = Number(key);
+    const index = numberConstructor(key);
     if (index >= length)
       serializationFailure(code === 'invalid-options' ? code : 'unsupported-property', path);
     const descriptor = safeOwnPropertyDescriptor(arrayValue, key, appendPath(path, index), code);
@@ -3177,7 +3720,7 @@ function normalizeEntityPathSegment(
     return value;
   }
   if (typeof value === 'number') {
-    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_CANONICAL_ARRAY_LENGTH)
+    if (!numberIsSafeInteger(value) || value < 0 || value > MAX_CANONICAL_ARRAY_LENGTH)
       serializationFailure('invalid-entity-path-segment', path);
     return value;
   }
@@ -3196,7 +3739,7 @@ function normalizeEntityCollections(options: unknown): readonly NormalizedEntity
   if (collectionArray.values.length > MAX_ENTITY_COLLECTIONS)
     serializationFailure('entity-options-too-large');
   const collections: NormalizedEntityCollection[] = [];
-  const pathKeys = new Set<string>();
+  const pathKeys = new setConstructor<string>();
   for (
     let collectionIndex = 0;
     collectionIndex < collectionArray.values.length;
@@ -3320,8 +3863,8 @@ function normalizeJsonValue(
   if (value === null || typeof value === 'boolean') return value;
   if (typeof value === 'string') return value;
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) serializationFailure('invalid-json-value', path);
-    return Object.is(value, -0) ? 0 : value;
+    if (!numberIsFinite(value)) serializationFailure('invalid-json-value', path);
+    return objectIs(value, -0) ? 0 : value;
   }
   if (
     typeof value !== 'object' ||
@@ -3346,10 +3889,10 @@ function normalizeJsonValue(
         const collection = readOwnArraySlot(matches, 0);
         if (!collection) serializationFailure('ambiguous-entity-collection', path);
         context.matchedCollections.add(collection.pathKey);
-        const entries: { id: string; item: CanonicalJsonValue }[] = new Array(
+        const entries: { id: string; item: CanonicalJsonValue }[] = new arrayConstructor(
           snapshot.values.length,
         );
-        const ids = new Set<string>();
+        const ids = new setConstructor<string>();
         for (let index = 0; index < snapshot.values.length; index += 1) {
           const itemPath = appendPath(path, index);
           const rawItem = readOwnArraySlot(snapshot.values, index);
@@ -3393,12 +3936,15 @@ function normalizeJsonValue(
         context,
         depth + 1,
       );
-      Object.defineProperty(output, property.key, {
-        configurable: true,
-        enumerable: true,
-        writable: true,
-        value: normalized,
-      });
+      if (
+        !tryDefineOwnProperty(output, property.key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: normalized,
+        })
+      )
+        serializationFailure('serialization-failed');
     }
     return output;
   } finally {
@@ -3409,7 +3955,7 @@ function normalizeJsonValue(
 function canonicalOwnDataValue(value: object, key: string): unknown {
   let descriptor: PropertyDescriptor | undefined;
   try {
-    descriptor = Object.getOwnPropertyDescriptor(value, key);
+    descriptor = objectGetOwnPropertyDescriptor(value, key);
   } catch {
     serializationFailure('serialization-failed');
   }
@@ -3421,33 +3967,28 @@ function canonicalOwnDataValue(value: object, key: string): unknown {
 function canonicalArrayLength(value: object): number {
   let descriptor: PropertyDescriptor | undefined;
   try {
-    descriptor = Object.getOwnPropertyDescriptor(value, 'length');
+    descriptor = objectGetOwnPropertyDescriptor(value, 'length');
   } catch {
     serializationFailure('serialization-failed');
   }
-  if (!isDataDescriptor(descriptor) || !Number.isSafeInteger(descriptor.value))
+  if (!isDataDescriptor(descriptor) || !numberIsSafeInteger(descriptor.value))
     serializationFailure('serialization-failed');
   return descriptor.value;
 }
 
 interface CanonicalTextWriter {
-  readonly encoder: TextEncoder;
   text: string;
   bytes: number;
 }
 
 function createCanonicalTextWriter(): CanonicalTextWriter {
-  try {
-    return { encoder: new TextEncoder(), text: '', bytes: 0 };
-  } catch {
-    serializationFailure('serialization-failed');
-  }
+  return { text: '', bytes: 0 };
 }
 
 function appendCanonicalText(writer: CanonicalTextWriter, fragment: string): void {
   let bytes: number;
   try {
-    bytes = writer.encoder.encode(fragment).byteLength;
+    bytes = canonicalUtf8ByteLength(fragment);
   } catch {
     serializationFailure('serialization-failed');
   }
@@ -3471,7 +4012,7 @@ function canonicalJsonString(value: CanonicalJsonValue): string {
     if (typeof item === 'string') {
       let encoded: string | undefined;
       try {
-        encoded = JSON.stringify(item);
+        encoded = reflectApply(jsonStringify, undefined, [item]);
       } catch {
         serializationFailure('serialization-failed');
       }
@@ -3480,24 +4021,27 @@ function canonicalJsonString(value: CanonicalJsonValue): string {
       return;
     }
     if (typeof item === 'number') {
-      if (!Number.isFinite(item)) serializationFailure('invalid-json-value');
-      appendCanonicalText(writer, Object.is(item, -0) ? '0' : String(item));
+      if (!numberIsFinite(item)) serializationFailure('invalid-json-value');
+      appendCanonicalText(writer, objectIs(item, -0) ? '0' : stringConstructor(item));
       return;
     }
-    if (Array.isArray(item)) {
+    if (arrayIsArray(item)) {
       const lengthValue = canonicalArrayLength(item);
       if (lengthValue < 0) serializationFailure('serialization-failed');
       appendCanonicalText(writer, '[');
       for (let index = 0; index < lengthValue; index += 1) {
         if (index > 0) appendCanonicalText(writer, ',');
-        write(canonicalOwnDataValue(item, String(index)) as CanonicalJsonValue, depth + 1);
+        write(
+          canonicalOwnDataValue(item, stringConstructor(index)) as CanonicalJsonValue,
+          depth + 1,
+        );
       }
       appendCanonicalText(writer, ']');
       return;
     }
     let keys: string[];
     try {
-      keys = Object.keys(item);
+      keys = reflectApply(objectKeys, undefined, [item]);
     } catch {
       serializationFailure('serialization-failed');
     }
@@ -3508,7 +4052,7 @@ function canonicalJsonString(value: CanonicalJsonValue): string {
       if (key === undefined) serializationFailure('serialization-failed');
       let encodedKey: string | undefined;
       try {
-        encodedKey = JSON.stringify(key);
+        encodedKey = reflectApply(jsonStringify, undefined, [key]);
       } catch {
         serializationFailure('serialization-failed');
       }
@@ -3529,8 +4073,8 @@ function createNormalizationContext(
 ): NormalizationContext {
   return {
     collections,
-    matchedCollections: new Set<string>(),
-    ancestors: new WeakSet<object>(),
+    matchedCollections: new setConstructor<string>(),
+    ancestors: new weakSetConstructor<object>(),
     nodes: 0,
     containers: 0,
     stringCodeUnits: 0,
@@ -3575,7 +4119,7 @@ export function encodeCanonicalState(value: unknown, options?: CanonicalStateOpt
   return runCanonical(() => {
     const text = serializeCanonicalState(value, options);
     try {
-      return new TextEncoder().encode(text);
+      return encodeUtf8(text);
     } catch {
       serializationFailure('serialization-failed');
     }
@@ -3597,24 +4141,24 @@ function freezeCanonicalSnapshot(value: CanonicalJsonValue): void {
     readonly next: PendingSnapshot | undefined;
   }
   let pending: PendingSnapshot | undefined = { value, next: undefined };
-  const seen = new WeakSet<object>();
+  const seen = new weakSetConstructor<object>();
   while (pending !== undefined) {
     const current = pending.value;
     pending = pending.next;
     if (current === null || typeof current !== 'object') continue;
     if (seen.has(current)) continue;
     seen.add(current);
-    Object.freeze(current);
-    if (Array.isArray(current)) {
+    freeze(current);
+    if (arrayIsArray(current)) {
       const length = canonicalArrayLength(current);
       for (let index = 0; index < length; index += 1) {
         pending = {
-          value: canonicalOwnDataValue(current, String(index)) as CanonicalJsonValue,
+          value: canonicalOwnDataValue(current, stringConstructor(index)) as CanonicalJsonValue,
           next: pending,
         };
       }
     } else {
-      const keys = Object.keys(current);
+      const keys = reflectApply(objectKeys, undefined, [current]) as string[];
       for (let index = 0; index < keys.length; index += 1) {
         const key = readOwnArraySlot(keys, index);
         if (key === undefined) serializationFailure('serialization-failed');
@@ -3662,7 +4206,7 @@ export function encodeCanonicalEvent(input: unknown): Uint8Array {
   return runCanonical(() => {
     const text = serializeCanonicalEvent(input);
     try {
-      return new TextEncoder().encode(text);
+      return encodeUtf8(text);
     } catch {
       serializationFailure('serialization-failed');
     }

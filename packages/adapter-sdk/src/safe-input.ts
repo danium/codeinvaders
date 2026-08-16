@@ -1,5 +1,6 @@
 import { isProxy as nodeIsProxy } from 'node:util/types';
 import { appendArrayValue, harden } from './immutable.js';
+import { adapterIntrinsics } from './intrinsics.js';
 
 /**
  * Small, non-coercing snapshots for hostile adapter input.
@@ -10,13 +11,7 @@ import { appendArrayValue, harden } from './immutable.js';
  * callers must still validate that value before putting anything in a payload.
  */
 
-const getPrototypeOf = Object.getPrototypeOf;
-const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const freeze = harden;
-const create = Object.create;
-const defineProperty = Object.defineProperty;
-const preventExtensions = Object.preventExtensions;
-const isArray = Array.isArray;
 
 export interface SafePropertySnapshot {
   readonly key: string;
@@ -27,30 +22,32 @@ export interface SafePropertySnapshot {
 export function makeImmutableRecord<T extends object>(
   entries: readonly (readonly [string, unknown])[],
 ): T {
-  const output = create(null) as Record<string, unknown>;
+  if (adapterIntrinsics === undefined) throw new Error('adapter bootstrap unavailable');
+  const output = adapterIntrinsics.objectCreate(null) as Record<string, unknown>;
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     if (entry === undefined) continue;
-    defineProperty(output, entry[0], {
+    adapterIntrinsics.objectDefineProperty(output, entry[0], {
       configurable: false,
       enumerable: true,
       value: entry[1],
       writable: false,
     });
   }
-  preventExtensions(output);
+  adapterIntrinsics.objectPreventExtensions(output);
   return output as T;
 }
 
 function isPlainRecord(value: unknown): value is object {
+  if (adapterIntrinsics === undefined) return false;
   if (value === null || typeof value !== 'object') return false;
 
   try {
     if (nodeIsProxy(value)) return false;
-    if (isArray(value)) return false;
-    const prototype = getPrototypeOf(value);
+    if (adapterIntrinsics.arrayIsArray(value)) return false;
+    const prototype = adapterIntrinsics.objectGetPrototypeOf(value);
     if (prototype === null) return true;
-    return getPrototypeOf(prototype) === null;
+    return adapterIntrinsics.objectGetPrototypeOf(prototype) === null;
   } catch {
     return false;
   }
@@ -61,6 +58,7 @@ export function snapshotAllowedProperties(
   input: unknown,
   keys: readonly string[],
 ): readonly SafePropertySnapshot[] {
+  if (adapterIntrinsics === undefined) return freeze([]);
   if (!isPlainRecord(input)) return freeze([]);
 
   const snapshot: SafePropertySnapshot[] = [];
@@ -68,9 +66,9 @@ export function snapshotAllowedProperties(
     for (let index = 0; index < keys.length; index += 1) {
       const key = keys[index];
       if (key === undefined) continue;
-      const descriptor = getOwnPropertyDescriptor(input, key);
+      const descriptor = adapterIntrinsics.objectGetOwnPropertyDescriptor(input, key);
       if (descriptor === undefined) continue;
-      const valueDescriptor = getOwnPropertyDescriptor(descriptor, 'value');
+      const valueDescriptor = adapterIntrinsics.objectGetOwnPropertyDescriptor(descriptor, 'value');
       if (valueDescriptor === undefined) continue;
       appendArrayValue(
         snapshot,

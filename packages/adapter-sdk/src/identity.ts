@@ -9,24 +9,49 @@
  */
 
 import { appendArrayValue, harden, writeArrayValue } from './immutable.js';
+import { adapterIntrinsics, adapterIntrinsicsReady } from './intrinsics.js';
 
 const OPAQUE_ID_DOMAIN = 'io.github.danium.codeinvaders.opaque-id';
 const OPAQUE_ID_FORMAT = 'oid1_';
 const HMAC_HASH = 'SHA-256';
-const TEXT_ENCODER = new TextEncoder();
-const reflectApply = Reflect.apply;
+const TextEncoderConstructor = adapterIntrinsics?.textEncoderConstructor;
+const TEXT_ENCODER =
+  adapterIntrinsicsReady && TextEncoderConstructor !== undefined
+    ? new TextEncoderConstructor()
+    : undefined;
 const stringNormalize = String.prototype.normalize;
 const stringCharCodeAt = String.prototype.charCodeAt;
-const textEncoderEncode = TextEncoder.prototype.encode;
-const typedArrayFill = Uint8Array.prototype.fill;
-const typedArraySet = Uint8Array.prototype.set;
-const isArrayBufferView = ArrayBuffer.isView;
-const isArray = Array.isArray;
+const textEncoderEncode = adapterIntrinsics?.textEncoderEncode;
+const typedArrayFill = adapterIntrinsics?.typedArrayFill;
+const typedArraySet = adapterIntrinsics?.typedArraySet;
 const isInteger = Number.isInteger;
 
+// Web Crypto is a mutable global surface in Node and browsers. Capture the
+// object, subtle instance, and exact method targets while this module is
+// evaluated so later replacement of any public property cannot redirect key
+// import or signing.
+const capturedCrypto: Crypto | undefined = adapterIntrinsicsReady
+  ? (() => {
+      try {
+        return globalThis.crypto;
+      } catch {
+        return undefined;
+      }
+    })()
+  : undefined;
+const capturedSubtle: SubtleCrypto | undefined = adapterIntrinsicsReady
+  ? (() => {
+      try {
+        return capturedCrypto?.subtle;
+      } catch {
+        return undefined;
+      }
+    })()
+  : undefined;
+const capturedImportKey = capturedSubtle?.importKey;
+const capturedSign = capturedSubtle?.sign;
+
 const freeze = harden;
-const objectGetPrototypeOf = Object.getPrototypeOf;
-const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 type Bytes = Uint8Array<ArrayBuffer>;
 
@@ -110,30 +135,44 @@ function opaqueError(code: OpaqueIdErrorCode): OpaqueIdError {
   return new OpaqueIdError(code);
 }
 
-const TYPED_ARRAY_PROTOTYPE = objectGetPrototypeOf(Uint8Array.prototype);
-const TYPED_ARRAY_TAG_GETTER = objectGetOwnPropertyDescriptor(
-  TYPED_ARRAY_PROTOTYPE,
-  Symbol.toStringTag,
-)?.get;
-const TYPED_ARRAY_BUFFER_GETTER = objectGetOwnPropertyDescriptor(
-  TYPED_ARRAY_PROTOTYPE,
-  'buffer',
-)?.get;
-const TYPED_ARRAY_BYTE_OFFSET_GETTER = objectGetOwnPropertyDescriptor(
-  TYPED_ARRAY_PROTOTYPE,
-  'byteOffset',
-)?.get;
-const TYPED_ARRAY_BYTE_LENGTH_GETTER = objectGetOwnPropertyDescriptor(
-  TYPED_ARRAY_PROTOTYPE,
-  'byteLength',
-)?.get;
+const TYPED_ARRAY_PROTOTYPE = adapterIntrinsicsReady
+  ? adapterIntrinsics!.objectGetPrototypeOf(adapterIntrinsics!.uint8ArrayPrototype)
+  : undefined;
+const TYPED_ARRAY_TAG_GETTER =
+  TYPED_ARRAY_PROTOTYPE === undefined
+    ? undefined
+    : adapterIntrinsics!.objectGetOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, Symbol.toStringTag)
+        ?.get;
+const TYPED_ARRAY_BUFFER_GETTER =
+  TYPED_ARRAY_PROTOTYPE === undefined
+    ? undefined
+    : adapterIntrinsics!.objectGetOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, 'buffer')?.get;
+const TYPED_ARRAY_BYTE_OFFSET_GETTER =
+  TYPED_ARRAY_PROTOTYPE === undefined
+    ? undefined
+    : adapterIntrinsics!.objectGetOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, 'byteOffset')?.get;
+const TYPED_ARRAY_BYTE_LENGTH_GETTER =
+  TYPED_ARRAY_PROTOTYPE === undefined
+    ? undefined
+    : adapterIntrinsics!.objectGetOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, 'byteLength')?.get;
+
+function byteLengthOf(value: Uint8Array): number {
+  if (TYPED_ARRAY_BYTE_LENGTH_GETTER === undefined || adapterIntrinsics === undefined)
+    throw new Error();
+  return adapterIntrinsics!.reflectApply(TYPED_ARRAY_BYTE_LENGTH_GETTER, value, []);
+}
 
 function copyKey(key: unknown): Bytes {
   try {
-    if (!isArrayBufferView(key) || TYPED_ARRAY_TAG_GETTER === undefined) {
+    if (
+      adapterIntrinsics === undefined ||
+      adapterIntrinsics.reflectApply(adapterIntrinsics.arrayBufferIsView, undefined, [key]) !==
+        true ||
+      TYPED_ARRAY_TAG_GETTER === undefined
+    ) {
       throw new Error();
     }
-    const tag = reflectApply(TYPED_ARRAY_TAG_GETTER, key, []);
+    const tag = adapterIntrinsics!.reflectApply(TYPED_ARRAY_TAG_GETTER, key, []);
     if (tag !== 'Int8Array' && tag !== 'Uint8Array' && tag !== 'Uint8ClampedArray') {
       throw new Error();
     }
@@ -145,13 +184,13 @@ function copyKey(key: unknown): Bytes {
       throw new Error();
     }
 
-    const byteLength = reflectApply(TYPED_ARRAY_BYTE_LENGTH_GETTER, key, []);
+    const byteLength = adapterIntrinsics!.reflectApply(TYPED_ARRAY_BYTE_LENGTH_GETTER, key, []);
     if (byteLength !== OPAQUE_ID_KEY_BYTES) throw new Error();
-    const buffer = reflectApply(TYPED_ARRAY_BUFFER_GETTER, key, []);
-    const byteOffset = reflectApply(TYPED_ARRAY_BYTE_OFFSET_GETTER, key, []);
-    const source = new Uint8Array(buffer, byteOffset, byteLength);
-    const copy = new Uint8Array(OPAQUE_ID_KEY_BYTES);
-    reflectApply(typedArraySet, copy, [source]);
+    const buffer = adapterIntrinsics!.reflectApply(TYPED_ARRAY_BUFFER_GETTER, key, []);
+    const byteOffset = adapterIntrinsics!.reflectApply(TYPED_ARRAY_BYTE_OFFSET_GETTER, key, []);
+    const source = new adapterIntrinsics!.uint8ArrayConstructor(buffer, byteOffset, byteLength);
+    const copy = new adapterIntrinsics!.uint8ArrayConstructor(OPAQUE_ID_KEY_BYTES);
+    adapterIntrinsics!.reflectApply(typedArraySet!, copy, [source]);
     return copy;
   } catch {
     throw opaqueError('invalid-key');
@@ -171,10 +210,10 @@ function isControlCodePoint(codePoint: number): boolean {
 
 function validateUnicodeScalarString(value: string): void {
   for (let index = 0; index < value.length; index += 1) {
-    const first = reflectApply(stringCharCodeAt, value, [index]);
+    const first = adapterIntrinsics!.reflectApply(stringCharCodeAt, value, [index]);
     if (first >= 0xd800 && first <= 0xdbff) {
       if (index + 1 >= value.length) throw opaqueError('invalid-identifier');
-      const second = reflectApply(stringCharCodeAt, value, [index + 1]);
+      const second = adapterIntrinsics!.reflectApply(stringCharCodeAt, value, [index + 1]);
       if (second < 0xdc00 || second > 0xdfff) throw opaqueError('invalid-identifier');
       const codePoint = 0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00);
       if (isControlCodePoint(codePoint)) throw opaqueError('invalid-identifier');
@@ -198,7 +237,7 @@ function canonicalizeComponent(value: unknown): CanonicalComponent {
   validateUnicodeScalarString(value);
   let normalized: string;
   try {
-    normalized = reflectApply(stringNormalize, value, ['NFC']);
+    normalized = adapterIntrinsics!.reflectApply(stringNormalize, value, ['NFC']);
   } catch {
     throw opaqueError('invalid-identifier');
   }
@@ -207,8 +246,10 @@ function canonicalizeComponent(value: unknown): CanonicalComponent {
     throw opaqueError('identifier-too-large');
   validateUnicodeScalarString(normalized);
 
-  const bytes = reflectApply(textEncoderEncode, TEXT_ENCODER, [normalized]) as Bytes;
-  if (bytes.byteLength > MAX_OPAQUE_ID_INPUT_BYTES) throw opaqueError('identifier-too-large');
+  const bytes = adapterIntrinsics!.reflectApply(textEncoderEncode!, TEXT_ENCODER, [
+    normalized,
+  ]) as Bytes;
+  if (byteLengthOf(bytes) > MAX_OPAQUE_ID_INPUT_BYTES) throw opaqueError('identifier-too-large');
   return { bytes };
 }
 
@@ -218,7 +259,7 @@ function canonicalizeInput(input: OpaqueIdInput): readonly Bytes[] {
   let length: number | undefined;
   let values: unknown[] | undefined;
   try {
-    if (!isArray(input)) throw new Error();
+    if (!adapterIntrinsics!.arrayIsArray(input)) throw new Error();
     length = input.length;
     if (!isInteger(length) || length < 1) throw new Error();
     if (length <= MAX_OPAQUE_ID_COMPONENTS) {
@@ -240,7 +281,7 @@ function canonicalizeInput(input: OpaqueIdInput): readonly Bytes[] {
   let totalBytes = 0;
   for (let index = 0; index < values.length; index += 1) {
     const component = canonicalizeComponent(values[index]);
-    totalBytes += component.bytes.byteLength;
+    totalBytes += byteLengthOf(component.bytes);
     if (totalBytes > MAX_OPAQUE_ID_INPUT_BYTES) throw opaqueError('identifier-too-large');
     appendArrayValue(components, component.bytes);
   }
@@ -257,37 +298,37 @@ function writeUint32(target: Uint8Array, offset: number, value: number): number 
 
 function framedMessage(entityType: OpaqueIdEntityType, components: readonly Bytes[]): Bytes {
   const staticParts = [
-    reflectApply(textEncoderEncode, TEXT_ENCODER, [OPAQUE_ID_DOMAIN]),
-    reflectApply(textEncoderEncode, TEXT_ENCODER, ['1']),
-    reflectApply(textEncoderEncode, TEXT_ENCODER, [entityType]),
+    adapterIntrinsics!.reflectApply(textEncoderEncode!, TEXT_ENCODER, [OPAQUE_ID_DOMAIN]),
+    adapterIntrinsics!.reflectApply(textEncoderEncode!, TEXT_ENCODER, ['1']),
+    adapterIntrinsics!.reflectApply(textEncoderEncode!, TEXT_ENCODER, [entityType]),
   ];
   let length = 4;
   for (let index = 0; index < staticParts.length; index += 1) {
     const part = staticParts[index];
     if (part === undefined) throw opaqueError('derivation-failed');
-    length += 4 + part.byteLength;
+    length += 4 + byteLengthOf(part);
   }
   for (let index = 0; index < components.length; index += 1) {
     const component = components[index];
     if (component === undefined) throw opaqueError('derivation-failed');
-    length += 4 + component.byteLength;
+    length += 4 + byteLengthOf(component);
   }
 
-  const message = new Uint8Array(new ArrayBuffer(length));
+  const message = new adapterIntrinsics!.uint8ArrayConstructor(length);
   let offset = writeUint32(message, 0, staticParts.length + components.length);
   for (let index = 0; index < staticParts.length; index += 1) {
     const part = staticParts[index];
     if (part === undefined) throw opaqueError('derivation-failed');
-    offset = writeUint32(message, offset, part.byteLength);
-    reflectApply(typedArraySet, message, [part, offset]);
-    offset += part.byteLength;
+    offset = writeUint32(message, offset, byteLengthOf(part));
+    adapterIntrinsics!.reflectApply(typedArraySet!, message, [part, offset]);
+    offset += byteLengthOf(part);
   }
   for (let index = 0; index < components.length; index += 1) {
     const component = components[index];
     if (component === undefined) throw opaqueError('derivation-failed');
-    offset = writeUint32(message, offset, component.byteLength);
-    reflectApply(typedArraySet, message, [component, offset]);
-    offset += component.byteLength;
+    offset = writeUint32(message, offset, byteLengthOf(component));
+    adapterIntrinsics!.reflectApply(typedArraySet!, message, [component, offset]);
+    offset += byteLengthOf(component);
   }
   return message;
 }
@@ -309,6 +350,7 @@ function base64Url(bytes: Uint8Array): string {
 
 /** Validates the fixed opaque-ID wire format without attempting derivation. */
 export function isOpaqueId(value: unknown): value is OpaqueId {
+  if (!adapterIntrinsicsReady) return false;
   if (typeof value !== 'string') return false;
   if (value.length !== OPAQUE_ID_FORMAT.length + 43) return false;
   for (let index = 0; index < OPAQUE_ID_FORMAT.length; index += 1) {
@@ -346,33 +388,33 @@ export function isOpaqueId(value: unknown): value is OpaqueId {
  * material or serialization metadata.
  */
 export async function createOpaqueIdDeriver(key: OpaqueIdKey): Promise<OpaqueIdDeriver> {
-  const copiedKey = copyKey(key);
-  let cryptoApi: Crypto;
-  try {
-    cryptoApi = globalThis.crypto;
-  } catch {
-    reflectApply(typedArrayFill, copiedKey, [0]);
+  if (!adapterIntrinsicsReady || adapterIntrinsics === undefined)
     throw opaqueError('crypto-unavailable');
-  }
-  if (cryptoApi === undefined || cryptoApi.subtle === undefined) {
-    reflectApply(typedArrayFill, copiedKey, [0]);
+  const copiedKey = copyKey(key);
+  if (
+    capturedCrypto === undefined ||
+    capturedSubtle === undefined ||
+    typeof capturedImportKey !== 'function' ||
+    typeof capturedSign !== 'function'
+  ) {
+    adapterIntrinsics!.reflectApply(typedArrayFill!, copiedKey, [0]);
     throw opaqueError('crypto-unavailable');
   }
 
   let cryptoKey: CryptoKey;
   try {
-    cryptoKey = await cryptoApi.subtle.importKey(
+    cryptoKey = await adapterIntrinsics!.reflectApply(capturedImportKey, capturedSubtle, [
       'raw',
       copiedKey,
       { name: 'HMAC', hash: HMAC_HASH },
       false,
       ['sign'],
-    );
+    ]);
   } catch {
-    reflectApply(typedArrayFill, copiedKey, [0]);
+    adapterIntrinsics!.reflectApply(typedArrayFill!, copiedKey, [0]);
     throw opaqueError('derivation-failed');
   }
-  reflectApply(typedArrayFill, copiedKey, [0]);
+  adapterIntrinsics!.reflectApply(typedArrayFill!, copiedKey, [0]);
 
   const derive = async (
     entityType: OpaqueIdEntityType,
@@ -383,12 +425,16 @@ export async function createOpaqueIdDeriver(key: OpaqueIdKey): Promise<OpaqueIdD
     const message = framedMessage(entityType, components);
     let signature: ArrayBuffer;
     try {
-      signature = await cryptoApi.subtle.sign('HMAC', cryptoKey, message);
+      signature = await adapterIntrinsics!.reflectApply(capturedSign, capturedSubtle, [
+        'HMAC',
+        cryptoKey,
+        message,
+      ]);
     } catch {
       throw opaqueError('derivation-failed');
     }
-    const output = new Uint8Array(signature);
-    if (output.byteLength !== OPAQUE_ID_OUTPUT_BYTES) throw opaqueError('derivation-failed');
+    const output = new adapterIntrinsics!.uint8ArrayConstructor(signature);
+    if (byteLengthOf(output) !== OPAQUE_ID_OUTPUT_BYTES) throw opaqueError('derivation-failed');
     return `${OPAQUE_ID_FORMAT}${base64Url(output)}` as OpaqueId;
   };
 

@@ -113,6 +113,27 @@ export {
   MAX_OPAQUE_ID_COMPONENTS,
   MAX_OPAQUE_ID_INPUT_BYTES,
 } from './identity.js';
+
+export {
+  buildSanitizedIngressRecord,
+  deriveStableEventId,
+  deriveStableRetryEventId,
+  MAX_INGRESS_RECORD_BYTES,
+  MAX_INGRESS_RECORD_DEPTH,
+  prepareSanitizedIngressRecord,
+  sanitizeIngressRecord,
+  StableRetryEventIdError,
+} from './ingress.js';
+export type {
+  AcceptedIngressPreparation,
+  CanonicalIngressJson,
+  IngressHandoffResult,
+  IngressPreparationResult,
+  IngressRecordOptions,
+  IngressTransportWriter,
+  SanitizedIngressRecord,
+  StableRetryEventIdErrorCode,
+} from './ingress.js';
 export type {
   OpaqueId,
   OpaqueIdDeriver,

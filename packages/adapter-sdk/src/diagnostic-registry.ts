@@ -1,7 +1,5 @@
+import { adapterIntrinsics } from './intrinsics.js';
 import { writeArrayValue } from './immutable.js';
-
-const defineProperty = Object.defineProperty;
-const preventExtensions = Object.preventExtensions;
 
 /**
  * Builds an immutable array without calling Object.freeze or consulting an
@@ -9,28 +7,29 @@ const preventExtensions = Object.preventExtensions;
  * Array.prototype.toJSON pollution after construction.
  */
 export function createHardenedDiagnosticArray<T, R extends readonly T[]>(values: R): R {
+  if (adapterIntrinsics === undefined) return values;
   const output: T[] = [];
   for (let index = 0; index < values.length; index += 1) {
-    defineProperty(output, index, {
+    adapterIntrinsics.objectDefineProperty(output, index, {
       configurable: false,
       enumerable: true,
       value: values[index],
       writable: false,
     });
   }
-  defineProperty(output, 'length', {
+  adapterIntrinsics.objectDefineProperty(output, 'length', {
     configurable: false,
     enumerable: false,
     value: values.length,
     writable: false,
   });
-  defineProperty(output, 'toJSON', {
+  adapterIntrinsics.objectDefineProperty(output, 'toJSON', {
     configurable: false,
     enumerable: false,
     value: () => output,
     writable: false,
   });
-  preventExtensions(output);
+  adapterIntrinsics.objectPreventExtensions(output);
   return output as unknown as R;
 }
 
@@ -39,6 +38,19 @@ export function combineHardenedDiagnosticArrays<
   A extends readonly string[],
   B extends readonly string[],
 >(first: A, second: B): readonly [...A, ...B] {
+  if (adapterIntrinsics === undefined) {
+    const output: string[] = [];
+    let outputIndex = 0;
+    for (let index = 0; index < first.length; index += 1) {
+      output[outputIndex] = first[index] as string;
+      outputIndex += 1;
+    }
+    for (let index = 0; index < second.length; index += 1) {
+      output[outputIndex] = second[index] as string;
+      outputIndex += 1;
+    }
+    return output as unknown as readonly [...A, ...B];
+  }
   const values: string[] = [];
   let outputIndex = 0;
   for (let index = 0; index < first.length; index += 1) {
