@@ -131,14 +131,20 @@ function pnpmInvocation(args) {
 }
 
 function safeText(value) {
-  return String(value)
-    .replace(/[A-Za-z]:\\[^\r\n ]*/g, '<path>')
+  const sanitized = String(value)
+    .replace(/file:\/\/\/[A-Za-z]:\/[^\r\n ]*/gi, '<path>')
+    .replace(/[A-Za-z]:[\\/][^\r\n ]*/g, '<path>')
     .replace(/(?:^|[\s(])\/(?:[^\s/]+\/)+[^\s)]*/g, '$1<path>')
+    .replace(
+      /\b(?:npm_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,})\b/g,
+      '<redacted-secret>',
+    )
     .replace(
       /\b(?:prompt|message|command|output|transcript|credential|token|secret|username|remote)\b/gi,
       '<redacted>',
-    )
-    .slice(0, 240);
+    );
+  if (sanitized.length <= 720) return sanitized;
+  return `${sanitized.slice(0, 240)}\n...\n${sanitized.slice(-440)}`;
 }
 
 function outcome(name, result, required = true) {

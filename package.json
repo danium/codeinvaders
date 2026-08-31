@@ -14,7 +14,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "pnpm -r --if-present build && pnpm -r --if-present typecheck",
     "test": "vitest run --config vitest.config.mjs",
     "protocol:docs:check": "pnpm --filter @codeinvaders/protocol build && node scripts/check-protocol-compatibility-docs.mjs",
     "protocol:docs:generate": "pnpm --filter @codeinvaders/protocol build && node scripts/check-protocol-compatibility-docs.mjs --write",

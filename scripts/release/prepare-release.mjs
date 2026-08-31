@@ -22,6 +22,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: 'utf8',
+    shell: options.shell ?? false,
     stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
   });
   if (result.error || result.status !== 0) {
@@ -35,7 +36,10 @@ function pnpm(args, options) {
   if (executable && ['.js', '.cjs', '.mjs'].includes(extname(executable).toLowerCase())) {
     return run(process.execPath, [executable, ...args], options);
   }
-  return run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', args, options);
+  return run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', args, {
+    ...options,
+    shell: process.platform === 'win32',
+  });
 }
 
 run(process.execPath, [
