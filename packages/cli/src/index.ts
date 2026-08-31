@@ -1389,10 +1389,10 @@ async function sendSyntheticIpc(path: string, event: unknown): Promise<boolean> 
       const socket = createConnection(path) as unknown as {
         once(event: string, listener: (...args: unknown[]) => void): void;
         on(event: string, listener: (...args: unknown[]) => void): void;
-        end(value?: string | Uint8Array): void;
+        write(value: string | Uint8Array): void;
         destroy(): void;
       };
-      socket.once('connect', () => socket.end(frame));
+      socket.once('connect', () => socket.write(frame));
       socket.on('data', (chunk: unknown) => {
         const text = String(chunk);
         if (text === 'ACK\n') {

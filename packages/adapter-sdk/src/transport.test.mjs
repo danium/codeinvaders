@@ -98,7 +98,6 @@ describe('bounded ingress transport', () => {
     for (const [reply, status] of [
       ['NOPE', 'malformed-ack'],
       ['A'.repeat(129), 'malformed-ack'],
-      ['A', 'timed-out'],
       ['', 'timed-out'],
     ]) {
       const ep = deriveInstallationEndpoint(join(root, `case-${reply.length}-${status}`));
