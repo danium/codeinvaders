@@ -137,7 +137,7 @@ await writeFile(
       protocol: { id: protocolId, version: protocolVersion },
       supported: { node: '24 LTS', pnpm: '10.27.x', platforms: ['windows', 'macos', 'linux'] },
       installation: 'README.md',
-      provenance: releaseProvenance(process.env),
+      provenance: releaseProvenance(process.env, version),
     },
     null,
     2,
