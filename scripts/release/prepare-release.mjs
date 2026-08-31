@@ -6,7 +6,9 @@ import process from 'node:process';
 import {
   assertReleaseVersion,
   extractChangelogSection,
+  filterPlatformPackages,
   flattenLicenseInventory,
+  releaseProvenance,
   sha256Hex,
 } from './release-utils.mjs';
 
@@ -135,7 +137,7 @@ await writeFile(
       protocol: { id: protocolId, version: protocolVersion },
       supported: { node: '24 LTS', pnpm: '10.27.x', platforms: ['windows', 'macos', 'linux'] },
       installation: 'README.md',
-      provenance: 'GitHub Actions artifact attestation for the release archive',
+      provenance: releaseProvenance(process.env),
     },
     null,
     2,
@@ -144,7 +146,8 @@ await writeFile(
 );
 
 const licenses = JSON.parse(pnpm(['licenses', 'list', '--json', '--long'], { capture: true }));
-const inventory = flattenLicenseInventory(licenses);
+const lockfile = await readFile(resolve(root, 'pnpm-lock.yaml'), 'utf8');
+const inventory = filterPlatformPackages(flattenLicenseInventory(licenses), lockfile);
 await writeFile(
   resolve(releaseRoot, 'dependency-inventory.json'),
   `${JSON.stringify({ schema: 'codeinvaders.dependencies.v1', dependencies: inventory }, null, 2)}\n`,

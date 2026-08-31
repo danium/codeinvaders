@@ -10,6 +10,7 @@ import {
   orderedEvents,
   reduceEvents,
   initialSemanticState,
+  significantEvents,
   type SemanticState,
 } from '@codeinvaders/core';
 import { canonicalizeIngress } from '@codeinvaders/core';
@@ -381,8 +382,17 @@ export class LocalBroker {
     if (!ack.ok) return { ok: false, code: ack.code };
     const event = { ...parsed.event, sequence: ack.value.sequence } as AnyCoreEvent;
     if (!ack.value.duplicate) {
-      this.events.push(event);
-      this.state = reduceEvents([event], this.state);
+      const tail = this.events.at(-1);
+      const canonicalPair = tail ? orderedEvents([tail, event]) : [event];
+      const appendsCanonically =
+        canonicalPair.length === 2 && canonicalPair.at(-1)?.eventId === event.eventId;
+      if (appendsCanonically) {
+        this.events.push(event);
+        this.state = reduceEvents([event], this.state);
+      } else {
+        this.events = orderedEvents([...this.events, event]);
+        this.state = reduceEvents(this.events, initialSemanticState());
+      }
       this.broadcast({ type: 'event', event });
     }
     return { ok: true, event };
@@ -469,18 +479,29 @@ export class LocalBroker {
           (query.session === undefined || event.scope.sessionId === query.session) &&
           (query.workspace === undefined || event.scope.workspaceId === query.workspace),
       );
+      const orderedScopedEvents = orderedEvents(scopedEvents);
       const events =
-        query.through === undefined ? scopedEvents : scopedEvents.slice(0, query.through);
+        query.through === undefined
+          ? orderedScopedEvents
+          : orderedScopedEvents.slice(0, query.through);
       const state = reduceEvents(events, initialSemanticState());
       const intents = mapEvents(events, initialSemanticState(), (previous, event) =>
         reduceEvents([event], previous),
       );
+      const significant = significantEvents(orderedScopedEvents).map((event) => ({
+        eventId: event.eventId,
+        sequence: event.sequence,
+        type: event.type,
+        through:
+          orderedScopedEvents.findIndex((candidate) => candidate.eventId === event.eventId) + 1,
+      }));
       return json(response, {
         events,
         intents,
         state,
         throughSequence: events.length,
-        liveSequence: scopedEvents.length,
+        liveSequence: orderedScopedEvents.length,
+        significantEvents: significant,
         availableSessions,
         availableWorkspaces,
       });

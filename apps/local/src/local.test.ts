@@ -69,8 +69,12 @@ describe('local runtime security', () => {
     expect(html).not.toContain('secret-value');
     expect(html).toContain('/assets/app.v0.1.0.js');
     expect(html).toContain('Text-only mode');
+    expect(html).toContain('Jump to previous significant event');
+    expect(html).toContain('Jump to next significant event');
     expect(APP_JS).toContain("import('/assets/arena.v0.1.0.js')");
     expect(APP_JS).toContain('state.fallbackObjectives');
+    expect(APP_JS).toContain('significantEvents');
+    expect(APP_JS).toContain('jumpSignificant');
     expect(ARENA_JS).toContain('THREE.InstancedMesh');
   });
   it('ships parsable browser modules that consume semantic intents without dynamic evaluation', () => {

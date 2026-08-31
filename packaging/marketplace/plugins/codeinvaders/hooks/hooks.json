@@ -1,0 +1,125 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/codeinvaders-codex-hook.mjs\"",
+            "commandWindows": "cmd.exe /d /c %PLUGIN_ROOT%\\scripts\\codeinvaders-codex-hook.cmd"
+          }
+        ]
+      }
+    ]
+  }
+}

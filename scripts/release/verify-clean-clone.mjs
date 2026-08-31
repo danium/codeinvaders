@@ -199,7 +199,8 @@ function referencedHookPaths(value) {
   const paths = [];
   const visit = (current) => {
     if (typeof current === 'string') {
-      for (const match of current.matchAll(/(?:\.\/)?(scripts\/[^\s"']+\.mjs)/g))
+      const normalized = current.replaceAll('\\', '/');
+      for (const match of normalized.matchAll(/(?:\.\/)?(scripts\/[^\s"']+\.(?:mjs|cmd))/g))
         paths.push(match[1]);
     } else if (Array.isArray(current)) current.forEach(visit);
     else if (current && typeof current === 'object') Object.values(current).forEach(visit);
@@ -219,7 +220,7 @@ async function validateAndInstallCodexPlugin(cloneRoot, codexHome, packageVersio
   );
   const pluginRoot = join(cloneRoot, 'packaging', 'marketplace', 'plugins', 'codeinvaders');
   const manifestPath = join(pluginRoot, '.codex-plugin', 'plugin.json');
-  const hooksPath = join(pluginRoot, 'hooks.json');
+  const hooksPath = join(pluginRoot, 'hooks', 'hooks.json');
   let marketplace;
   let manifest;
   let hooks;
@@ -251,7 +252,7 @@ async function validateAndInstallCodexPlugin(cloneRoot, codexHome, packageVersio
   await cp(pluginRoot, destination, { recursive: true });
   try {
     await readFile(join(destination, '.codex-plugin', 'plugin.json'), 'utf8');
-    await readFile(join(destination, 'hooks.json'), 'utf8');
+    await readFile(join(destination, 'hooks', 'hooks.json'), 'utf8');
     for (const ref of refs) await readFile(join(destination, ref), 'utf8');
   } catch {
     return { status: 'failed', reason: 'codex-plugin-isolated-install-failed' };

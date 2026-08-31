@@ -4,7 +4,10 @@ import process from 'node:process';
 import {
   assertReleaseVersion,
   extractChangelogSection,
+  filterPlatformPackages,
   flattenLicenseInventory,
+  getPlatformPackageIds,
+  releaseProvenance,
   sha256Hex,
 } from './release-utils.mjs';
 
@@ -33,4 +36,38 @@ assert.deepEqual(
   ],
 );
 assert.throws(() => flattenLicenseInventory({ MIT: [{ name: 'bad', versions: [1] }] }));
+const lockfile = `lockfileVersion: '9.0'\n\npackages:\n  '@native/pkg@1.0.0':\n    resolution: {integrity: sha512-test}\n    os: [win32]\n  portable@1.0.0:\n    resolution: {integrity: sha512-test}\n\nsnapshots:\n`;
+assert.deepEqual([...getPlatformPackageIds(lockfile)], ['@native/pkg@1.0.0']);
+assert.deepEqual(
+  filterPlatformPackages(
+    [
+      { name: '@native/pkg', version: '1.0.0', license: 'MIT' },
+      { name: 'portable', version: '1.0.0', license: 'MIT' },
+    ],
+    lockfile,
+  ),
+  [{ name: 'portable', version: '1.0.0', license: 'MIT' }],
+);
+assert.match(releaseProvenance({}), /^pending \(not generated locally;/u);
+assert.match(
+  releaseProvenance({ RELEASE_PROVENANCE: 'untrusted local claim' }),
+  /^pending \(not generated locally;/u,
+);
+assert.equal(
+  releaseProvenance({
+    GITHUB_ACTIONS: 'true',
+    GITHUB_WORKFLOW: 'Release',
+    GITHUB_REF_TYPE: 'tag',
+  }),
+  'GitHub Actions artifact attestation for the release archive',
+);
+assert.equal(
+  releaseProvenance({
+    GITHUB_ACTIONS: 'true',
+    GITHUB_WORKFLOW: 'Release',
+    GITHUB_REF_TYPE: 'tag',
+    RELEASE_PROVENANCE: 'trusted CI provenance recorded',
+  }),
+  'trusted CI provenance recorded',
+);
 process.stdout.write('release script self-test passed\n');

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   codexHook,
+  CODEX_HOOKS,
   detectCodexCapabilities,
   normalizeCodexEvidence,
   normalizeCodexHook,
@@ -73,6 +74,22 @@ describe('Codex adapter boundary', () => {
     expect(signals.sessions.availability).toBe('partial');
     expect(signals.tools.availability).toBe('unsupported');
     expect(signals.tools.exclusions).toEqual([{ code: 'hosted-tools' }]);
+  });
+
+  it('publishes only the currently supported native hook names', () => {
+    expect(CODEX_HOOKS).toEqual([
+      'SessionStart',
+      'SessionEnd',
+      'UserPromptSubmit',
+      'PreToolUse',
+      'PostToolUse',
+      'PermissionRequest',
+      'SubagentStart',
+      'SubagentStop',
+      'Stop',
+      'PreCompact',
+      'PostCompact',
+    ]);
   });
 
   it('cancels removed plan identities without fuzzy terminal transfer', () => {

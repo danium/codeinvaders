@@ -351,12 +351,9 @@ export async function detectSurfaces(
   const surfaces: AgentSurface[] = [];
   for (const agent of AGENTS) {
     const configuredRoot = agent === 'codex' ? env.CODEX_HOME : env.CLAUDE_CONFIG_DIR;
-    const configPath = agentConfigPath(
-      agent,
-      configuredRoot ?? options.configDir ?? options.home,
-      options.scope,
-      options.cwd,
-    );
+    const configPath = configuredRoot
+      ? resolve(configuredRoot, agent === 'codex' ? 'config.toml' : 'settings.json')
+      : agentConfigPath(agent, options.configDir ?? options.home, options.scope, options.cwd);
     const installed = await exists(configPath);
     const executable = await commandAvailable(agent, env, os);
     const pluginSupported =
@@ -475,12 +472,12 @@ const hookEvents: Record<AgentName, readonly string[]> = {
     'UserPromptSubmit',
     'PreToolUse',
     'PostToolUse',
-    'PostToolUseFailure',
     'PermissionRequest',
     'SubagentStart',
     'SubagentStop',
     'Stop',
-    'Compact',
+    'PreCompact',
+    'PostCompact',
   ],
   claude: [
     'SessionStart',
@@ -735,13 +732,20 @@ export function prebuiltHookPath(agent: AgentName): string {
       );
 }
 function ownedHookCommandForPlatform(agent: AgentName, hooksRoot: string, os: HostOS): string {
-  const root = dirname(hooksRoot).replace(/"/g, '\\"');
-  const hook = join(hooksRoot, `${agent}-hook.mjs`).replace(/"/g, '\\"');
-  const command =
-    os === 'win32'
-      ? `set "CODEINVADERS_DATA_DIR=${root}" && node "${hook}"`
-      : `CODEINVADERS_DATA_DIR="${root}" node "${hook}"`;
-  return `${command} ${os === 'win32' ? '& rem' : '#'} ${OWNERSHIP_MARKER}`;
+  // Claude Code invokes command hooks through a POSIX shell on Windows. Keep
+  // Codex's native Windows command form, but give Claude shell-safe paths and
+  // environment syntax on every platform.
+  const posixShell = os !== 'win32' || agent === 'claude';
+  const shellPath = (value: string) =>
+    posixShell && os === 'win32' ? value.replaceAll('\\', '/') : value;
+  const posixQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const cmdPath = (value: string) => value.replace(/([%&|<>^()!])/g, '^$1');
+  const root = shellPath(dirname(hooksRoot));
+  const hook = shellPath(join(hooksRoot, `${agent}-hook.mjs`));
+  const command = !posixShell
+    ? `setlocal DisableDelayedExpansion && set "CODEINVADERS_DATA_DIR=${cmdPath(root)}" && node "${cmdPath(hook)}"`
+    : `CODEINVADERS_DATA_DIR=${posixQuote(root)} node ${posixQuote(hook)}`;
+  return `${command} ${posixShell ? '#' : '& rem'} ${OWNERSHIP_MARKER}`;
 }
 function jsonHookEntry(agent: AgentName, hooksRoot: string, os: HostOS): Record<string, unknown> {
   return {

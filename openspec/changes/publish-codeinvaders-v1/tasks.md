@@ -120,12 +120,12 @@
 - [x] 9.7 Implement `doctor` checks for hooks, direct entry files, permissions, storage, IPC, browser authentication, assets, adapters, and a privacy-safe synthetic event round trip.
 - [x] 9.8 Implement compatibility-aware upgrade with configuration rollback and refusal of destructive journal migrations.
 - [x] 9.9 Implement ownership-aware uninstall that preserves recordings by default and removes only recognized CodeInvaders entries and files.
-- [ ] 9.10 Add full install-start-doctor-replay-upgrade-uninstall tests on clean and preconfigured Windows, macOS, and Linux environments.
+- [x] 9.10 Add full install-start-doctor-replay-upgrade-uninstall tests on clean and preconfigured Windows, macOS, and Linux environments.
 
 ## 10. Conformance, Security, and Release Hardening
 
 - [x] 10.1 Build the shared adapter conformance runner and golden scenarios for fallback, plans, cancellation, parallel tools, nested agents, permissions, failure, duplicates, gaps, restart, and sensitive canaries.
-- [ ] 10.2 Run recorded real-session conformance for one supported Codex version and one supported Claude Code version and document the observed capability profiles.
+- [x] 10.2 Run recorded real-session conformance for one supported Codex version and one supported Claude Code version and document the observed capability profiles.
 - [x] 10.3 Add fuzz and property tests for schema validation, reducer determinism, canonical serialization, journal recovery, and configuration composition.
 - [ ] 10.4 Add accessibility automation plus manual keyboard, screen-reader, contrast, reduced-motion, and WebGL-fallback release checks.
 - [ ] 10.5 Establish and measure release budgets for full hook latency, event-to-presentation latency, frame rate, memory, spool growth, and replay seek time on reference systems.
@@ -141,8 +141,8 @@
 - [x] 11.4 Add `SECURITY.md` with private reporting, supported versions, response expectations, and guidance not to attach event logs by default.
 - [x] 11.5 Add GitHub issue and pull-request templates, ownership metadata, branch protection documentation, and required-check configuration.
 - [x] 11.6 Create release scripts for version consistency, changelog generation, production builds, dependency and license inventory, SHA-256 checksums, and provenance where supported.
-- [ ] 11.7 Verify a clean clone of the release candidate can install, build, test, run, record, replay, and uninstall using only public source and documented dependencies.
-- [ ] 11.8 Synchronize the complete history to the preflight-verified `github.com/danium/codeinvaders` repository, enable private vulnerability reporting, and configure protected release workflows.
+- [x] 11.7 Verify a clean clone of the release candidate can install, build, test, run, record, replay, and uninstall using only public source and documented dependencies.
+- [x] 11.8 Synchronize the complete history to the public `github.com/danium/codeinvaders` repository, enable private vulnerability reporting, and configure protected release workflows.
 
 ## 12. Prerelease and Release Candidate
 

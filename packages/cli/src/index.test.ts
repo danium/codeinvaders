@@ -7,6 +7,7 @@ import {
   OWNERSHIP_MARKER,
   composeJsonConfig,
   composeTomlConfig,
+  detectSurfaces,
   doctor,
   install,
   parseArgs,
@@ -123,6 +124,22 @@ describe('argument parsing and configuration composition', () => {
     expect(first.after).toContain(OWNERSHIP_MARKER);
     expect(first.after).toContain('claude-hook.mjs');
     expect(first.after).toContain('CODEINVADERS_DATA_DIR');
+    const windows = composeJsonConfig(before, 'claude', '/tmp/ci-hooks', 'win32');
+    expect(windows.after).toContain("CODEINVADERS_DATA_DIR='/tmp'");
+    expect(windows.after).not.toContain('set \\"CODEINVADERS_DATA_DIR');
+    expect(windows.after).not.toContain('& rem codeinvaders-owned:v1');
+    const hostile = composeJsonConfig(
+      before,
+      'claude',
+      "/tmp/$(touch pwned)`echo pwned`'dir/hooks",
+      'win32',
+    );
+    expect(hostile.after).toContain(
+      "CODEINVADERS_DATA_DIR='/tmp/$(touch pwned)`echo pwned`'\\\\''dir'",
+    );
+    const hostileCodex = composeTomlConfig('', 'codex', 'C:\\tmp\\100%\\!dir\\hooks', 'win32');
+    expect(hostileCodex.after).toContain('setlocal DisableDelayedExpansion');
+    expect(hostileCodex.after).toContain('100^%\\\\^!dir');
     const second = composeJsonConfig(first.after, 'claude', '/tmp/ci-hooks');
     expect(second.added).toBe(0);
     const removed = removeOwnedConfig(first.after, 'json', 'claude');
@@ -154,6 +171,30 @@ describe('argument parsing and configuration composition', () => {
       );
       expect(result.code).toBe(EXIT_CODES.unsupported);
       expect(await readFile(configPath, 'utf8')).toBe('trusted_setting = true\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('treats CODEX_HOME as the direct Codex configuration directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'codeinvaders-codex-home-'));
+    try {
+      const codexHome = join(root, 'isolated-codex-config');
+      await mkdir(codexHome, { recursive: true });
+      await writeFile(join(codexHome, 'config.toml'), 'model = "gpt-5.6-luna"\n', 'utf8');
+      const result = await detectSurfaces(
+        opts(join(root, 'home'), process.cwd(), join(root, 'data')),
+        {
+          CODEX_HOME: codexHome,
+          CODEINVADERS_CODEX_INSTALLED: '1',
+          CODEINVADERS_CODEX_PLUGIN_SUPPORTED: '1',
+        },
+        'win32',
+      );
+      expect(result.surfaces.find((surface) => surface.agent === 'codex')).toMatchObject({
+        configPath: join(codexHome, 'config.toml'),
+        installed: true,
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

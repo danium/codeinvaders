@@ -16,7 +16,9 @@ const MAX_SPOOL_BYTES = 4 * 1024 * 1024;
 const MAX_SPOOL_RECORDS = 4096;
 const IPC_MS = 180;
 const env = process.env;
-const dataRoot = resolve(env[DATA_ENV] || (process.platform === 'win32'
+const HOOK_OBSERVED_AT = new Date().toISOString();
+const pluginData = ADAPTER === 'codex' ? env.PLUGIN_DATA : env.CLAUDE_PLUGIN_DATA;
+const dataRoot = resolve(env[DATA_ENV] || pluginData || (process.platform === 'win32'
   ? join(env.LOCALAPPDATA || join(env.USERPROFILE || env.HOME || '.', 'AppData', 'Local'), 'CodeInvaders')
   : join(env.XDG_DATA_HOME || join(env.HOME || '.', '.local', 'share'), 'codeinvaders')));
 
@@ -61,7 +63,59 @@ async function epoch() {
   try { const value = (await fs.readFile(path, 'utf8')).trim(); if (/^[A-Za-z0-9_-]{32,128}$/.test(value)) return value; } catch { /* first invocation */ }
   return (await once(path, randomBytes(24).toString('base64url') + '\n')).trim();
 }
-function eventFor(input, keyBytes, epochValue) {
+function turnStateDirectory(keyBytes, session) {
+  return join(dataRoot, 'hook-state', opaque(keyBytes, 'stream', ADAPTER + ':turn-state:' + session));
+}
+async function nextCounter(directory, name) {
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  const lockPath = join(directory, name + '.lock');
+  const counterPath = join(directory, name + '.counter');
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    let lock;
+    try {
+      lock = await fs.open(lockPath, 'wx', 0o600);
+    } catch {
+      const age = Date.now() - (await fs.stat(lockPath).then((value) => value.mtimeMs).catch(() => Date.now()));
+      if (age > 1000) await fs.rm(lockPath, { force: true }).catch(() => undefined);
+      await new Promise((done) => setTimeout(done, 1));
+      continue;
+    }
+    try {
+      const current = Number((await fs.readFile(counterPath, 'utf8').catch(() => '0')).trim());
+      const next = Number.isSafeInteger(current) && current >= 0 ? current + 1 : 1;
+      if (!Number.isSafeInteger(next)) return undefined;
+      const temporary = counterPath + '.' + process.pid + '.' + Date.now() + '.tmp';
+      await fs.writeFile(temporary, String(next), { encoding: 'utf8', mode: 0o600 });
+      await fs.rename(temporary, counterPath);
+      return next;
+    } finally {
+      await lock.close().catch(() => undefined);
+      await fs.rm(lockPath, { force: true }).catch(() => undefined);
+    }
+  }
+  return undefined;
+}
+async function correlatedTurn(keyBytes, session, hook, nativeTurn) {
+  if (nativeTurn) return nativeTurn;
+  if (hook === 'SessionStart' || hook === 'SessionEnd') return undefined;
+  const directory = turnStateDirectory(keyBytes, session);
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  if (hook === 'UserPromptSubmit') {
+    const next = await nextCounter(directory, 'turn');
+    return next === undefined
+      ? undefined
+      : 'derived-turn:' + opaque(keyBytes, 'stream', 'session:' + session) + ':' + next;
+  }
+  const latest = Number((await fs.readFile(join(directory, 'turn.counter'), 'utf8').catch(() => '0')).trim());
+  return Number.isSafeInteger(latest) && latest > 0
+    ? 'derived-turn:' + opaque(keyBytes, 'stream', 'session:' + session) + ':' + latest
+    : undefined;
+}
+async function derivedIdentity(keyBytes, session, name) {
+  const next = await nextCounter(turnStateDirectory(keyBytes, session), 'entity-' + name);
+  return next === undefined ? undefined : 'derived-' + name + ':' + next;
+}
+async function eventFor(input, keyBytes, epochValue) {
   if (!bounded(input)) return undefined;
   const payload = own(input, 'payload');
   if (payload !== undefined && (!payload || typeof payload !== 'object' || Array.isArray(payload))) return undefined;
@@ -69,30 +123,86 @@ function eventFor(input, keyBytes, epochValue) {
   const session = native(input, payload, 'session_id', 'sessionId', 'conversation_id', 'conversationId');
   if (!session) return undefined;
   const maps = ADAPTER === 'codex'
-    ? { SessionStart: ['session.started', { resume: false }, 'confirmed'], SessionEnd: ['session.ended', { reason: 'unknown' }, 'confirmed'], UserPromptSubmit: ['turn.started', {}, 'provisional'], PreToolUse: ['tool.requested', { name: 'other', category: 'other' }, 'provisional'], PostToolUse: ['tool.completed', { name: 'other', category: 'other', resultClass: 'success' }, 'confirmed'], PostToolUseFailure: ['tool.failed', { name: 'other', category: 'other', failureClass: 'unknown' }, 'confirmed'], PermissionRequest: ['permission.requested', { category: 'other' }, 'provisional'], PermissionResolved: ['permission.resolved', { outcome: 'approved' }, 'confirmed'], SubagentStart: ['agent.spawned', { role: 'unknown', depth: 0 }, 'confirmed'], SubagentStop: ['agent.state.changed', { to: 'waiting', reason: 'native' }, 'confirmed'], Stop: ['turn.quiescent', { reason: 'native' }, 'confirmed'], Compact: ['source.heartbeat', { uptimeMs: 0 }, 'confirmed'], TaskPlanUpdated: ['task.plan.reconciled', {}, 'confirmed'] }
+    ? { SessionStart: ['session.started', { resume: false }, 'confirmed'], SessionEnd: ['session.ended', { reason: 'unknown' }, 'confirmed'], UserPromptSubmit: ['turn.started', {}, 'provisional'], PreToolUse: ['tool.requested', { name: 'other', category: 'other' }, 'provisional'], PostToolUse: ['tool.completed', { name: 'other', category: 'other', resultClass: 'success' }, 'confirmed'], PermissionRequest: ['permission.requested', { category: 'other' }, 'provisional'], SubagentStart: ['agent.spawned', { role: 'unknown', depth: 0 }, 'confirmed'], SubagentStop: ['agent.state.changed', { to: 'waiting', reason: 'native' }, 'confirmed'], Stop: ['turn.quiescent', { reason: 'native' }, 'confirmed'], PreCompact: ['source.heartbeat', { uptimeMs: 0 }, 'confirmed'], PostCompact: ['source.heartbeat', { uptimeMs: 0 }, 'confirmed'] }
     : { SessionStart: ['session.started', { resume: false }, 'confirmed'], SessionEnd: ['session.ended', { reason: 'unknown' }, 'confirmed'], UserPromptSubmit: ['turn.started', {}, 'provisional'], PreToolUse: ['tool.requested', { name: 'other', category: 'other' }, 'provisional'], PostToolUse: ['tool.completed', { name: 'other', category: 'other', resultClass: 'success' }, 'confirmed'], PostToolUseFailure: ['tool.failed', { name: 'other', category: 'other', failureClass: 'unknown' }, 'confirmed'], PermissionRequest: ['permission.requested', { category: 'other' }, 'provisional'], PermissionDenied: ['permission.resolved', { outcome: 'denied' }, 'confirmed'], Stop: ['turn.quiescent', { reason: 'native' }, 'confirmed'], StopFailure: ['turn.finished', { outcome: 'failed' }, 'confirmed'], TaskCreated: ['task.created', { status: 'pending', fallback: false }, 'provisional'], TaskCompleted: ['task.completed', { completion: 'observed' }, 'confirmed'], SubagentStart: ['agent.spawned', { role: 'unknown', depth: 0 }, 'confirmed'], SubagentStop: ['agent.state.changed', { to: 'waiting', reason: 'native' }, 'confirmed'] };
   const mapped = maps[hook];
   if (!mapped) return undefined;
+  if (ADAPTER === 'claude' && hook === 'TaskCompleted') {
+    const taskTool = native(input, payload, 'tool_name', 'tool');
+    const success = own(input, 'success') === true || own(payload, 'success') === true || native(input, payload, 'status') === 'completed';
+    if ((taskTool !== 'Task' && taskTool !== 'task') || !success) return undefined;
+  }
   const operation = native(input, payload, 'toolUseId', 'tool_use_id', 'call_id');
-  const turn = native(input, payload, 'turnId', 'turn_id');
+  if (mapped[0].startsWith('tool.') && !operation) return undefined;
+  const nativeTurn = native(input, payload, 'turnId', 'turn_id');
+  const turn = await correlatedTurn(keyBytes, session, hook, nativeTurn);
   const agent = native(input, payload, 'agentId', 'agent_id', 'subagentId', 'subagent_id');
   const task = native(input, payload, 'taskId', 'task_id');
   const permission = native(input, payload, 'permissionId', 'permission_id');
+  const nativeEvent = native(input, payload, 'eventId', 'event_id', 'id');
+  const agentKey = mapped[0].startsWith('agent.') && !agent ? await derivedIdentity(keyBytes, session, 'agent') : agent;
+  const taskKey = mapped[0].startsWith('task.') && mapped[0] !== 'task.plan.reconciled' && !task ? await derivedIdentity(keyBytes, session, 'task') : task;
+  const permissionKey = mapped[0].startsWith('permission.') && !permission ? (operation || await derivedIdentity(keyBytes, session, 'permission')) : permission;
+  if ((mapped[0].startsWith('agent.') && !agentKey) || (mapped[0].startsWith('task.') && mapped[0] !== 'task.plan.reconciled' && !taskKey) || (mapped[0].startsWith('permission.') && !permissionKey)) return undefined;
   const workspace = native(input, payload, 'workspace', 'workspacePath', 'workspace_path', 'cwd');
   const repository = native(input, payload, 'repository', 'repositoryRoot', 'repository_root', 'repo');
-  const checkpoint = [ADAPTER, hook, native(input, payload, 'eventId', 'event_id', 'id') || operation || turn || agent || task || permission || 'checkpoint'];
+  const checkpoint = [ADAPTER, hook, session, nativeEvent || operation || turn || agentKey || taskKey || permissionKey || 'checkpoint'];
   const id = (kind, value) => opaque(keyBytes, kind, value);
   const source = 'codeinvaders-' + (ADAPTER === 'claude' ? 'claude-code' : 'codex');
-  const eventId = id('event', [...checkpoint, epochValue].join(':'));
+  const eventId = id('event', JSON.stringify([...checkpoint, epochValue]));
   const occurred = text(own(input, 'occurredAt') ?? own(input, 'occurred_at') ?? own(input, 'timestamp'));
-  const timestamp = occurred && Number.isFinite(Date.parse(occurred)) ? new Date(occurred).toISOString() : '1970-01-01T00:00:00.000Z';
+  const timestamp = occurred && Number.isFinite(Date.parse(occurred)) ? new Date(occurred).toISOString() : HOOK_OBSERVED_AT;
   const scope = { workspaceId: id('workspace', workspace || 'workspace:' + session), repoId: id('repository', repository || 'repository:' + (workspace || session)), sessionId: id('stream', 'session:' + session) };
   if (turn) scope.turnId = id('turn', turn);
-  if (agent) scope.agentId = id('agent', agent);
-  if (task) scope.taskId = id('task', task);
+  if (mapped[0].startsWith('agent.')) scope.agentId = id('agent', agentKey);
+  if (mapped[0].startsWith('task.') && mapped[0] !== 'task.plan.reconciled') scope.taskId = id('task', taskKey);
   if (operation && mapped[0].startsWith('tool.')) scope.operationId = id('operation', operation);
-  if (permission && mapped[0].startsWith('permission.')) scope.permissionId = id('permission', permission);
-  return { spec: 'io.github.danium.codeinvaders.aap', version: '1.0.0', eventId, type: mapped[0], occurredAt: timestamp, observedAt: timestamp, sequence: 0, source: { adapterId: source, adapterVersion: VERSION, streamId: id('stream', source + ':' + session), epochId: id('stream', 'epoch:' + epochValue) }, scope, fidelity: 'observed', finality: mapped[2], data: mapped[1] };
+  if (mapped[0].startsWith('permission.')) scope.permissionId = id('permission', permissionKey);
+  const requiredScope = mapped[0].startsWith('turn.') || mapped[0] === 'task.plan.reconciled'
+    ? 'turnId'
+    : mapped[0].startsWith('agent.')
+      ? 'agentId'
+      : mapped[0].startsWith('task.')
+        ? 'taskId'
+        : mapped[0].startsWith('tool.')
+          ? 'operationId'
+          : mapped[0].startsWith('permission.')
+            ? 'permissionId'
+            : undefined;
+  if (requiredScope && !scope[requiredScope]) return undefined;
+  let data = mapped[1];
+  if (mapped[0] === 'permission.resolved' && ADAPTER === 'codex') {
+    const outcome = native(input, payload, 'outcome');
+    data = { outcome: ['allowed', 'denied', 'cancelled', 'timed_out', 'unknown'].includes(outcome) ? outcome : outcome === undefined ? 'allowed' : 'unknown' };
+  }
+  if (mapped[0] === 'task.plan.reconciled') {
+    const planSource = payload ?? input;
+    const rawItems = own(planSource, 'items') ?? own(planSource, 'plan') ?? own(planSource, 'tasks');
+    const complete = own(planSource, 'complete');
+    if (!Array.isArray(rawItems) || (complete !== undefined && complete !== true)) return undefined;
+    const allowedStatuses = new Set(['pending', 'in_progress', 'blocked', 'completed', 'failed', 'denied', 'cancelled', 'abandoned', 'unknown']);
+    const items = rawItems.slice(0, 256).map((item, index) => {
+      const nativeId = native(item, undefined, 'nativeId', 'native_id', 'taskId', 'task_id', 'id');
+      const status = native(item, undefined, 'status', 'state') || 'unknown';
+      const candidate = own(item, 'ordinal') ?? own(item, 'order') ?? index;
+      const ordinal = Number.isSafeInteger(candidate) && candidate >= 0 ? candidate : index;
+      return { taskId: id('task', nativeId || 'plan-item:' + index), status: allowedStatuses.has(status) ? status : 'unknown', ordinal, identityBasis: nativeId ? 'stable-native-id' : 'new-unmatched' };
+    });
+    const candidate = own(planSource, 'revision') ?? own(input, 'revision');
+    const revision = Number.isSafeInteger(candidate) && candidate > 0 ? candidate : 1;
+    data = { revision, ...(revision > 1 ? { previousRevision: revision - 1 } : {}), complete: true, items };
+  }
+  const semantic = mapped[0] === 'turn.quiescent'
+    ? { kind: 'quiescence', terminal: false, basis: 'native' }
+    : mapped[0] === 'task.completed'
+      ? { kind: 'outcome', terminal: true, outcome: 'success', basis: 'native' }
+      : undefined;
+  const parentAgent = native(input, payload, 'parentAgentId', 'parent_agent_id');
+  const links = {};
+  if (parentAgent && mapped[0].startsWith('agent.')) links.parentAgentId = id('agent', parentAgent);
+  if (operation && mapped[0].startsWith('permission.')) links.correlationId = id('operation', operation);
+  if (hook === 'SessionEnd') await fs.rm(turnStateDirectory(keyBytes, session), { recursive: true, force: true }).catch(() => undefined);
+  return { spec: 'io.github.danium.codeinvaders.aap', version: '1.0.0', eventId, type: mapped[0], occurredAt: timestamp, observedAt: HOOK_OBSERVED_AT, sequence: 0, source: { adapterId: source, adapterVersion: VERSION, streamId: id('stream', source + ':' + session), epochId: id('stream', 'epoch:' + epochValue) }, scope, ...(Object.keys(links).length ? { links } : {}), fidelity: 'observed', finality: mapped[2], ...(semantic ? { semantic } : {}), data };
 }
 function endpoint(value) {
   if (typeof value !== 'string' || value.length > 260 || value.includes('\0')) return undefined;
@@ -104,12 +214,12 @@ async function sendIpc(json) {
   const target = endpoint(runtime?.ipcPath);
   if (!target) return false;
   return new Promise((done) => {
-    let settled = false; const socket = createConnection(target);
-    const finish = (value) => { if (!settled) { settled = true; socket.destroy(); done(value); } };
+    let settled = false; let reply = ''; const socket = createConnection(target);
+    const finish = (value) => { if (!settled) { settled = true; clearTimeout(timer); socket.destroy(); done(value); } };
     const timer = setTimeout(() => finish(false), IPC_MS);
-    socket.once('error', () => { clearTimeout(timer); finish(false); });
-    socket.on('data', (chunk) => { if (chunk.toString('ascii') === 'ACK\n') { clearTimeout(timer); finish(true); } });
-    socket.once('connect', () => socket.end('CIIP/1 ' + Buffer.byteLength(json) + ':' + json + '\n'));
+    socket.once('error', () => finish(false));
+    socket.on('data', (chunk) => { reply += chunk.toString('ascii'); if (reply === 'ACK\n') finish(true); else if (reply === 'ERR\n' || reply.length >= 4 && !'ACK\n'.startsWith(reply) && !'ERR\n'.startsWith(reply)) finish(false); });
+    socket.once('connect', () => socket.write('CIIP/1 ' + Buffer.byteLength(json) + ':' + json + '\n'));
   });
 }
 async function spool(json, eventId) {
@@ -123,7 +233,7 @@ async function main() {
   let raw = ''; process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) { raw += chunk; if (Buffer.byteLength(raw) > MAX_INPUT) return; }
   let input; try { input = JSON.parse(raw); } catch { return; }
-  const record = eventFor(input, await key(), await epoch());
+  const record = await eventFor(input, await key(), await epoch());
   if (!record) return;
   const json = JSON.stringify(record); if (!(await sendIpc(json))) await spool(json, record.eventId);
 }

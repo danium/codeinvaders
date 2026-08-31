@@ -8,7 +8,21 @@ This report contains no tokens, credential values, configuration contents, or ra
 
 ## Decision
 
-`ready` — every required pre-implementation dependency and approval is resolved. Implementation task 1.1 may begin.
+`ready` — every required pre-implementation dependency and approval was
+resolved; implementation task 1.1 began. The publication-state verification
+below supersedes the preflight repository-visibility notes where they differ.
+
+## Publication-state verification (2026-08-31)
+
+The canonical repository [`danium/codeinvaders`](https://github.com/danium/codeinvaders)
+is public, private vulnerability reporting is enabled, and the protected
+release configuration is active. `main` has administrator enforcement, one
+approving review, CODEOWNERS review, stale-approval dismissal, conversation
+resolution, linear history, strict required checks (`Checks (ubuntu-latest)`,
+`Checks (macos-latest)`, and `Checks (windows-latest)`), and no force pushes or
+deletions. Active ruleset `21913918` protects `refs/tags/v*` from deletion and
+non-fast-forward updates. These facts were verified through GitHub API
+responses; they do not imply that a stable release has been published.
 
 ## Readiness classification
 
