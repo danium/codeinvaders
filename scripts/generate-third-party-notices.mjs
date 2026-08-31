@@ -59,6 +59,39 @@ if (result.error || result.status !== 0) {
 }
 
 const grouped = JSON.parse(result.stdout);
+// `pnpm licenses list` reports only the optional native package selected for
+// the current host.  The lockfile contains every host variant, so including
+// that selected package would make this generated file differ between
+// Windows, Linux, and macOS.  Read the lockfile metadata and omit packages
+// constrained by `os`/`cpu`; their portable parent package remains listed.
+const lockfile = readFileSync(resolve(root, 'pnpm-lock.yaml'), 'utf8');
+const lockLines = lockfile.split(/\r?\n/u);
+const packagesStart = lockLines.indexOf('packages:');
+const snapshotsStart = lockLines.indexOf('snapshots:');
+const platformPackages = new Set();
+if (packagesStart >= 0) {
+  let key;
+  let body = [];
+  const flush = () => {
+    if (key && body.some((line) => /^ {4}(?:os|cpu):/u.test(line))) {
+      platformPackages.add(key);
+    }
+  };
+  for (const line of lockLines.slice(
+    packagesStart + 1,
+    snapshotsStart >= 0 ? snapshotsStart : undefined,
+  )) {
+    const match = /^ {2}(\S.*):$/u.exec(line);
+    if (match) {
+      flush();
+      key = match[1].replace(/^'(.*)'$/u, '$1').replace(/''/gu, "'");
+      body = [];
+    } else if (key) {
+      body.push(line);
+    }
+  }
+  flush();
+}
 const normalizeText = (value) =>
   String(value ?? '')
     .replace(/\s+/gu, ' ')
@@ -75,6 +108,12 @@ const records = Object.values(grouped)
       description: normalizeText(entry.description),
     })),
   )
+  .filter((record) => {
+    const packageId = `${record.name}@${record.version}`;
+    return ![...platformPackages].some(
+      (key) => key === packageId || key.startsWith(`${packageId}(`),
+    );
+  })
   .sort((a, b) =>
     `${a.name}\0${a.version}\0${a.license}`.localeCompare(`${b.name}\0${b.version}\0${b.license}`),
   );

@@ -4,7 +4,7 @@ This file is generated from the committed `pnpm-lock.yaml` dependency graph.
 Regenerate it with `pnpm third-party-notices:generate`; CI uses
 `pnpm third-party-notices:check` to ensure it is current.
 
-Dependency records: 144
+Dependency records: 142
 
 ## @dimforge/rapier3d-compat 0.12.0
 
@@ -114,12 +114,6 @@ Dependency records: 144
 - Author: Boshen and oxc contributors
 - Homepage: https://oxc.rs
 - Description: Types for Oxc AST nodes
-
-## @rolldown/binding-win32-x64-msvc 1.2.4
-
-- License: MIT
-- Homepage: https://rolldown.rs/
-- Description: Fast JavaScript/TypeScript bundler in Rust with Rollup-compatible API.
 
 ## @rolldown/pluginutils 1.0.1
 
@@ -642,12 +636,6 @@ Dependency records: 144
 - Author: George Zahariev
 - Homepage: https://github.com/gkz/levn
 - Description: Light ECMAScript (JavaScript) Value Notation - human written, concise, typed, flexible
-
-## lightningcss-win32-x64-msvc 1.33.0
-
-- License: MPL-2.0
-- Homepage: https://github.com/parcel-bundler/lightningcss#readme
-- Description: A CSS parser, transformer, and minifier written in Rust
 
 ## lightningcss 1.33.0
 

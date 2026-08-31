@@ -80,10 +80,14 @@ describe('cross-realm adapter diagnostics', () => {
       ],
       { cwd: new globalThis.URL('..', import.meta.url), encoding: 'utf8', windowsHide: true },
     );
-    const numericLoaderLimitation = (result) =>
-      result.status !== 0 &&
-      result.stderr.includes('ModuleWrap') &&
-      result.stderr.includes('module_value->IsObject()');
+    const numericLoaderLimitation = (result) => {
+      // Node's assertion is emitted by the native process on stderr on some
+      // hosts and by the child runner's captured output on others. Keep the
+      // platform exception narrow, but do not depend on the stack-frame
+      // spelling (which changed between Node 24 patch releases).
+      const output = `${result.stdout}\n${result.stderr}`;
+      return result.status !== 0 && output.includes('module_value') && output.includes('IsObject');
+    };
     expect(baseline.status, 'neutral numeric-loader baseline').toBe(0);
     expect(baseline.stdout, 'neutral numeric-loader baseline marker').toContain(
       'NUMERIC_NEUTRAL_BASELINE_EXECUTED',

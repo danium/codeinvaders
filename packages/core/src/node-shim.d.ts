@@ -32,3 +32,4 @@ declare module 'node:os' {
   export function tmpdir(): string;
 }
 declare const Buffer: { byteLength(value: string): number };
+declare const process: { platform: string };

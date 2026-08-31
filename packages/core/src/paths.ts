@@ -4,8 +4,10 @@ import { join, resolve, relative } from 'node:path';
 export type SafeResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly code: 'unsafe-path' | 'not-owned' | 'io-failure' };
+const comparable = (value: string): string =>
+  process.platform === 'win32' ? value.toLowerCase() : value;
 const outside = (base: string, target: string): boolean => {
-  const rel = relative(base, target);
+  const rel = relative(comparable(base), comparable(target));
   return rel === '..' || rel.startsWith('../') || rel.startsWith('..\\') || rel.includes('\0');
 };
 /** Lexical ownership check. It never reads or follows the candidate. */
@@ -51,7 +53,10 @@ export async function safeDeleteOwned(root: string, name: string): Promise<SafeR
     if (!info.isFile()) return { ok: false, code: 'not-owned' };
     const verified = await verifyOwnedPath(root, p.value);
     if (!verified.ok) return verified;
-    if (resolve(verified.value) !== resolve(p.value)) return { ok: false, code: 'unsafe-path' };
+    // Windows realpath can canonicalize drive-letter/path casing differently
+    // from the lexical path, while still referring to the same file.
+    if (comparable(resolve(verified.value)) !== comparable(resolve(p.value)))
+      return { ok: false, code: 'unsafe-path' };
     await unlink(verified.value);
     return { ok: true, value: undefined };
   } catch {
