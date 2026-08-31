@@ -472,11 +472,18 @@ const partial = (
   finality: 'mixed',
   exclusions: [{ code }],
 });
+const unsupported = (code: 'missing-correlation'): SignalCapability => ({
+  availability: 'unsupported',
+  evidenceQuality: 'none',
+  coverage: 'none',
+  finality: 'provisional',
+  exclusions: [{ code }],
+});
 export const capabilities: CapabilityProfile['signals'] = Object.freeze({
   sessions: partial('session-configuration'),
   turns: partial('session-configuration'),
-  tasks: partial('missing-correlation'),
-  taskPlan: partial('missing-correlation'),
+  tasks: unsupported('missing-correlation'),
+  taskPlan: unsupported('missing-correlation'),
   agents: partial('missing-correlation'),
   tools: partial('hosted-tools'),
   permissions: partial('manual-denials'),
@@ -488,14 +495,12 @@ export const CODEX_HOOKS = Object.freeze([
   'UserPromptSubmit',
   'PreToolUse',
   'PostToolUse',
-  'PostToolUseFailure',
   'PermissionRequest',
-  'PermissionResolved',
   'SubagentStart',
   'SubagentStop',
   'Stop',
-  'Compact',
-  'TaskPlanUpdated',
+  'PreCompact',
+  'PostCompact',
 ] as const);
 
 /** Detect only capabilities evidenced by the active session's observed hooks. */
@@ -520,12 +525,8 @@ export function detectCodexCapabilities(
     turns: has('UserPromptSubmit', 'turn.requested')
       ? partial('session-configuration')
       : unavailable('session-configuration'),
-    tasks: has('task.updated', 'task.plan.reconciled')
-      ? partial('missing-correlation')
-      : unavailable('missing-correlation'),
-    taskPlan: has('task.plan.reconciled')
-      ? partial('missing-correlation')
-      : unavailable('missing-correlation'),
+    tasks: unavailable('missing-correlation'),
+    taskPlan: unavailable('missing-correlation'),
     agents: has('SubagentStart', 'agent.spawned')
       ? partial('missing-correlation')
       : unavailable('missing-correlation'),

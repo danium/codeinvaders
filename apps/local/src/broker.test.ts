@@ -175,6 +175,51 @@ describe('local broker integration', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it('keeps significant-event jump positions aligned with canonical replay order', async () => {
+    const root = join(process.cwd(), `.local-runtime-replay-order-${Date.now()}`);
+    const broker = await startLocalBroker({ port: 0, dataRoot: root });
+    const later = {
+      ...testEvent('later-end', 'stream-z', 'ordered-session'),
+      type: 'session.ended',
+      occurredAt: '2026-08-15T14:22:32.000Z',
+      observedAt: '2026-08-15T14:22:32.000Z',
+      data: { reason: 'normal' },
+    };
+    const earlier = {
+      ...testEvent('earlier-start', 'stream-a', 'ordered-session'),
+      occurredAt: '2026-08-15T14:22:31.000Z',
+      observedAt: '2026-08-15T14:22:31.000Z',
+    };
+    try {
+      expect((await broker.ingest(later)).ok).toBe(true);
+      expect((await broker.ingest(earlier)).ok).toBe(true);
+      const exchange = await fetch(`${broker.origin}/api/session`, {
+        method: 'POST',
+        headers: { Origin: broker.origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: broker.sessions.launchToken }),
+      });
+      const session = (await exchange.json()) as { token: string };
+      const response = await fetch(`${broker.origin}/api/replay?session=ordered-session`, {
+        headers: { Origin: broker.origin, Authorization: `Bearer ${session.token}` },
+      });
+      const replay = (await response.json()) as {
+        events: { eventId: string }[];
+        significantEvents: { eventId: string; through: number }[];
+        state: unknown;
+      };
+      expect(replay.events.map((item) => item.eventId)).toEqual(['earlier-start', 'later-end']);
+      expect(replay.significantEvents).toEqual([
+        { eventId: 'later-end', sequence: 1, type: 'session.ended', through: 2 },
+      ]);
+      const liveStateResponse = await fetch(`${broker.origin}/api/state`, {
+        headers: { Origin: broker.origin, Authorization: `Bearer ${session.token}` },
+      });
+      expect(((await liveStateResponse.json()) as { state: unknown }).state).toEqual(replay.state);
+    } finally {
+      await broker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('uses the supplied one-use launch secret and invalidates the prior session on restart', async () => {
     const root = join(process.cwd(), `.local-runtime-secret-${Date.now()}`);
     const launchSecret = 'test-launch-secret-0123456789';

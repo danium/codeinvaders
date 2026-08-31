@@ -75,3 +75,16 @@ browser console had no errors or warnings.
 The in-app evaluation surface did not expose browser performance/heap entries,
 so this pass does not claim FPS, JavaScript-heap, or long-soak measurements.
 Those profiles and a manual screen-reader walkthrough remain release gates.
+
+## Bounded semantic/live-replay/text-only soak (2026-08-31)
+
+Ten bounded cycles alternated live rendering, replay, and text-only mode in the
+same isolated browser session. At the visual/live checkpoints before and after
+the cycles there were 184 DOM nodes, one 732×329 canvas, and nine semantic
+entities; the session remained `Live` at the live edge. Text-only mode hid the
+canvas while retaining the semantic state. All recorded deltas were zero.
+Journey timing was p50 685 ms, p95 695 ms, and max 770 ms.
+
+This bounded semantic soak does not claim FPS, heap, CPU, or main-thread
+long-task results, and does not close the separate performance or full soak
+release tasks.
