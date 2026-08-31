@@ -32,25 +32,12 @@ function ensureBuilt() {
   built = true;
 }
 
-async function runHook(agent, root, input) {
-  ensureBuilt();
-  const child = spawn(
-    process.execPath,
-    [
-      join(
-        packageRoot,
-        'packages',
-        agent === 'codex' ? 'adapter-codex' : 'adapter-claude',
-        'dist',
-        'hook.js',
-      ),
-    ],
-    {
-      cwd: packageRoot,
-      env: { ...process.env, CODEINVADERS_DATA_DIR: root },
-      windowsHide: true,
-    },
-  );
+async function runNode(args, root, input) {
+  const child = spawn(process.execPath, args, {
+    cwd: packageRoot,
+    env: { ...process.env, CODEINVADERS_DATA_DIR: root },
+    windowsHide: true,
+  });
   let stdout = '';
   let stderr = '';
   child.stdout.setEncoding('utf8');
@@ -62,11 +49,55 @@ async function runHook(agent, root, input) {
     stderr += chunk;
   });
   child.stdin.end(typeof input === 'string' ? input : JSON.stringify(input));
+  const timeout = setTimeout(() => child.kill(), 10_000);
   const code = await new Promise((resolveCode, reject) => {
     child.once('error', reject);
     child.once('close', (value) => resolveCode(value));
-  });
+  }).finally(() => clearTimeout(timeout));
   return { code, stdout, stderr };
+}
+
+async function runHook(agent, root, input) {
+  ensureBuilt();
+  return runNode(
+    [
+      join(
+        packageRoot,
+        'packages',
+        agent === 'codex' ? 'adapter-codex' : 'adapter-claude',
+        'dist',
+        'hook.js',
+      ),
+    ],
+    root,
+    input,
+  );
+}
+
+async function runDelivery(agent, root, input) {
+  ensureBuilt();
+  const module = JSON.stringify(
+    pathToFileURL(
+      join(
+        packageRoot,
+        'packages',
+        agent === 'codex' ? 'adapter-codex' : 'adapter-claude',
+        'dist',
+        'index.js',
+      ),
+    ).href,
+  );
+  const entry = agent === 'codex' ? 'runDirectCodexHook' : 'runDirectClaudeHook';
+  const script = `import { ${entry} as deliver } from ${module}; let raw=''; process.stdin.setEncoding('utf8'); for await (const chunk of process.stdin) raw += chunk; process.stdout.write(JSON.stringify(await deliver(JSON.parse(raw))));`;
+  return runNode(['--input-type=module', '--eval', script], root, input);
+}
+
+function deliveryStatus(result) {
+  try {
+    return JSON.parse(result?.stdout)?.status;
+  } catch {
+    return undefined;
+  }
 }
 
 async function tempRoot(name) {
@@ -107,15 +138,22 @@ describe('prebuilt direct hook delivery', () => {
         remote: 'DIRECT_HOOK_REMOTE_CANARY',
         user: 'DIRECT_HOOK_USER_CANARY',
       };
-      const initial = await runHook(agent, root, input);
+      const nativeResponse = await runHook(
+        agent,
+        await tempRoot(`native-response-${agent}`),
+        input,
+      );
+      expect(nativeResponse.code).toBe(0);
+      expect(nativeResponse.stdout).toBe('{}');
+      const initial = await runDelivery(agent, root, input);
       expect(initial.code).toBe(0);
-      expect(initial.stdout).toBe('{}');
+      expect(deliveryStatus(initial)).toBe('spooled');
       const results = await Promise.all(
-        Array.from({ length: 8 }, () => runHook(agent, root, input)),
+        Array.from({ length: 8 }, () => runDelivery(agent, root, input)),
       );
       for (const result of results) {
         expect(result.code).toBe(0);
-        expect(result.stdout).toBe('{}');
+        expect(['spooled', 'dropped']).toContain(deliveryStatus(result));
       }
       const files = (await fs.readdir(join(root, 'spool'))).filter((name) =>
         name.endsWith('.ingress'),
@@ -155,14 +193,14 @@ describe('prebuilt direct hook delivery', () => {
           retryServer.once('error', reject);
           retryServer.listen(endpoint.address, resolveListen);
         });
-        result = await runHook(agent, root, {
+        result = await runDelivery(agent, root, {
           hook_event_name: 'SessionStart',
           session_id: `ipc-session-${attempt}`,
         });
         await new Promise((resolveClose) => retryServer.close(resolveClose));
         if (
           result.code !== 0 ||
-          result.stdout !== '{}' ||
+          deliveryStatus(result) !== 'acknowledged' ||
           !/^CIIP\/1 \d+:\{[\s\S]*\}\n$/.test(frame)
         )
           continue;
@@ -173,7 +211,7 @@ describe('prebuilt direct hook delivery', () => {
         }
       }
       expect(result?.code).toBe(0);
-      expect(result?.stdout).toBe('{}');
+      expect(deliveryStatus(result)).toBe('acknowledged');
       expect(frame).toMatch(/^CIIP\/1 \d+:\{[\s\S]*\}\n$/);
       await expect(fs.readdir(join(root, 'spool'), { withFileTypes: true })).rejects.toMatchObject({
         code: 'ENOENT',
@@ -218,12 +256,14 @@ describe('prebuilt direct hook delivery', () => {
         items: [{ id: 'native-task-a', status: 'completed', ordinal: 0 }],
       },
     };
-    await runHook('codex', root, plan);
+    const beforeRestart = await runDelivery('codex', root, plan);
+    expect(deliveryStatus(beforeRestart)).toBe('spooled');
     await fs.writeFile(
       join(root, 'runtime.json'),
       JSON.stringify({ startedAt: '2026-08-31T01:00:00.000Z' }),
     );
-    await runHook('codex', root, plan);
+    const afterRestart = await runDelivery('codex', root, plan);
+    expect(deliveryStatus(afterRestart)).toBe('spooled');
     const files = (await fs.readdir(join(root, 'spool'))).filter((name) =>
       name.endsWith('.ingress'),
     );
