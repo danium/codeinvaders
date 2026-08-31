@@ -1,0 +1,21 @@
+{
+  "name": "codeinvaders",
+  "version": "0.1.0",
+  "description": "Local, privacy-safe observability hooks for coding-agent sessions.",
+  "author": {
+    "name": "danium"
+  },
+  "homepage": "https://github.com/danium/codeinvaders",
+  "repository": "https://github.com/danium/codeinvaders",
+  "license": "Apache-2.0",
+  "keywords": ["observability", "local-first", "coding-agents"],
+  "interface": {
+    "displayName": "CodeInvaders",
+    "shortDescription": "Observe coding-agent activity locally.",
+    "longDescription": "CodeInvaders records allowlisted lifecycle metadata for a local semantic arena and deterministic replay.",
+    "developerName": "danium",
+    "category": "Productivity",
+    "capabilities": ["Local observability", "Deterministic replay"],
+    "defaultPrompt": "Show me how to start CodeInvaders."
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "arena-load-acceptance",
+  "semanticEntities": 100,
+  "pooledCosmeticEffects": 300,
+  "eventStormPerSecond": 500,
+  "semanticDropsAllowed": 0,
+  "cosmeticCoalescingAllowed": true,
+  "memoryMustRemainBounded": true
+}

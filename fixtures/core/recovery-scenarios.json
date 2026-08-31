@@ -1,0 +1,8 @@
+{
+  "description": "sanitized recovery cases",
+  "cases": [
+    { "name": "partial-final-record", "validPrefixRecords": 1, "invalidSuffix": true },
+    { "name": "duplicate-event-id", "validPrefixRecords": 1, "duplicateRecords": 1 },
+    { "name": "missing-manifest", "validPrefixRecords": 2, "manifest": "missing" }
+  ]
+}

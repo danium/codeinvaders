@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible CodeInvaders defect using synthetic data.
+title: '[Bug]: '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach journals, spool files, snapshots, transcripts, credentials, raw configuration, or other agent data.
+  - type: input
+    id: version
+    attributes:
+      label: CodeInvaders version
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Use synthetic identifiers and redact paths, user names, and repository details.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed event logs, transcripts, source, commands, output, credentials, environment values, remotes, and personal data.
+          required: true

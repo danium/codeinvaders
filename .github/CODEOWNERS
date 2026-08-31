@@ -1,0 +1,8 @@
+* @danium
+
+/.github/ @danium
+/packages/protocol/ @danium
+/packages/adapter-sdk/ @danium
+/apps/local/ @danium
+/scripts/release/ @danium
+/SECURITY.md @danium

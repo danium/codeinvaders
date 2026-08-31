@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "description": "Sanitized, native-shaped adapter conformance scenarios. Inputs contain no real agent data.",
+  "scenarios": [
+    {
+      "name": "fallback-without-task-lifecycle",
+      "codex": [
+        { "hook": "UserPromptSubmit" },
+        { "hook": "PreToolUse", "toolUseId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+      ],
+      "claude": [
+        { "hook": "UserPromptSubmit" },
+        {
+          "hook": "PreToolUse",
+          "tool_name": "Read",
+          "tool_use_id": "oid1_EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "signals": ["prompt", "tool"],
+      "capability": { "signal": "tasks", "availability": "unsupported" }
+    },
+    {
+      "name": "plan-and-conservative-cancellation",
+      "codex": [
+        { "hook": "TaskPlanUpdated" },
+        { "hook": "Stop" },
+        { "hook": "Stop" },
+        { "hook": "PostToolUseFailure", "exitCode": 7 }
+      ],
+      "claude": [
+        { "hook": "TaskCreated" },
+        { "hook": "TaskCompleted", "tool_name": "Task", "success": false },
+        { "hook": "StopFailure" }
+      ],
+      "signals": ["task", "quiescent"],
+      "requiresFailureClassification": true
+    },
+    {
+      "name": "parallel-tools",
+      "codex": [
+        {
+          "hook": "PreToolUse",
+          "toolUseId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "parallelGroupId": "oid1_BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        {
+          "hook": "PostToolUse",
+          "toolUseId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "duration_ms": 4
+        }
+      ],
+      "claude": [
+        {
+          "hook": "PreToolUse",
+          "tool_name": "Read",
+          "tool_use_id": "oid1_FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "parallel_group_id": "oid1_GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        {
+          "hook": "PostToolUse",
+          "tool_name": "Read",
+          "tool_use_id": "oid1_FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "duration_ms": 4
+        }
+      ],
+      "signals": ["tool", "tool"],
+      "correlations": ["native", "native"]
+    },
+    {
+      "name": "nested-agent-lifecycle",
+      "codex": [
+        {
+          "hook": "SubagentStart",
+          "role": "worker",
+          "depth": 1,
+          "agentId": "oid1_HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "parentAgentId": "oid1_IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        {
+          "hook": "SubagentStop",
+          "to": "waiting",
+          "agentId": "oid1_HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "parentAgentId": "oid1_IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "claude": [
+        {
+          "hook": "SubagentStart",
+          "agent_id": "oid1_HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "parent_agent_id": "oid1_IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "background": true
+        },
+        {
+          "hook": "SubagentStop",
+          "agent_id": "oid1_HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "parent_agent_id": "oid1_IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "background": true
+        }
+      ],
+      "signals": ["subagent", "subagent"],
+      "requiresNestedAgent": true
+    },
+    {
+      "name": "permission-ambiguity-and-denial",
+      "codex": [
+        { "hook": "PermissionRequest", "ambiguous": true },
+        { "hook": "PermissionResolved", "outcome": "denied" }
+      ],
+      "claude": [
+        { "hook": "PermissionRequest", "tool_name": "Bash" },
+        { "hook": "PermissionDenied", "tool_name": "Bash", "status": "denied" }
+      ],
+      "signals": ["permission", "permission"],
+      "requiresPermissionEvidence": true
+    },
+    {
+      "name": "execution-and-validation-failure",
+      "codex": [
+        {
+          "hook": "PostToolUseFailure",
+          "exitCode": 7,
+          "toolUseId": "oid1_CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "claude": [
+        {
+          "hook": "PostToolUseFailure",
+          "tool_name": "Bash",
+          "tool_use_id": "oid1_JAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "reason": "validation"
+        },
+        {
+          "hook": "PostToolUseFailure",
+          "tool_name": "Bash",
+          "tool_use_id": "oid1_KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "reason": "execution"
+        }
+      ],
+      "signals": ["tool"],
+      "requiresFailureClassification": true
+    },
+    {
+      "name": "restart-and-duplicate-delivery",
+      "codex": [
+        { "hook": "SessionStart", "resume": true },
+        { "hook": "SessionStart", "resume": true }
+      ],
+      "claude": [{ "hook": "SessionStart" }, { "hook": "SessionStart" }],
+      "signals": ["session", "session"],
+      "duplicateInputs": true
+    },
+    {
+      "name": "sensitive-native-fields",
+      "codex": [
+        {
+          "hook": "PostToolUse",
+          "session_id": "synthetic-sensitive-codex-session",
+          "toolUseId": "oid1_DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "prompt": "CANARY_PROMPT_001",
+          "assistant_text": "CANARY_ASSISTANT_TEXT_001",
+          "message": "CANARY_MESSAGE_001",
+          "source": "CANARY_SOURCE_CODE_001",
+          "patch": "CANARY_PATCH_001",
+          "command": "CANARY_COMMAND_001",
+          "args": "CANARY_ARGUMENTS_001",
+          "output": "CANARY_OUTPUT_001",
+          "path": "CANARY_ABSOLUTE_PATH_001",
+          "url": "CANARY_URL_001",
+          "query": "CANARY_QUERY_001",
+          "credential": "CANARY_CREDENTIAL_001",
+          "environment": "CANARY_ENVIRONMENT_VARIABLE_001",
+          "transcript": "CANARY_TRANSCRIPT_001",
+          "repository_remote": "CANARY_REPOSITORY_REMOTE_001",
+          "user": "CANARY_USER_NAME_001",
+          "tool_input": {
+            "command": "CANARY_COMMAND_001",
+            "path": "CANARY_ABSOLUTE_PATH_001",
+            "query": "CANARY_QUERY_001"
+          },
+          "tool_response": {
+            "content": "CANARY_OUTPUT_001"
+          }
+        }
+      ],
+      "claude": [
+        {
+          "hook": "PostToolUse",
+          "session_id": "synthetic-sensitive-claude-session",
+          "tool_name": "Read",
+          "tool_use_id": "oid1_LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "prompt": "CANARY_PROMPT_001",
+          "assistant_text": "CANARY_ASSISTANT_TEXT_001",
+          "message": "CANARY_MESSAGE_001",
+          "source": "CANARY_SOURCE_CODE_001",
+          "patch": "CANARY_PATCH_001",
+          "command": "CANARY_COMMAND_001",
+          "args": "CANARY_ARGUMENTS_001",
+          "output": "CANARY_OUTPUT_001",
+          "path": "CANARY_ABSOLUTE_PATH_001",
+          "url": "CANARY_URL_001",
+          "query": "CANARY_QUERY_001",
+          "credential": "CANARY_CREDENTIAL_001",
+          "environment": "CANARY_ENVIRONMENT_VARIABLE_001",
+          "transcript": "CANARY_TRANSCRIPT_001",
+          "repository_remote": "CANARY_REPOSITORY_REMOTE_001",
+          "user": "CANARY_USER_NAME_001",
+          "tool_input": {
+            "command": "CANARY_COMMAND_001",
+            "path": "CANARY_ABSOLUTE_PATH_001",
+            "query": "CANARY_QUERY_001"
+          },
+          "tool_response": {
+            "content": "CANARY_OUTPUT_001"
+          }
+        }
+      ],
+      "signals": ["tool"],
+      "canaries": [
+        "CANARY_PROMPT_001",
+        "CANARY_ASSISTANT_TEXT_001",
+        "CANARY_MESSAGE_001",
+        "CANARY_SOURCE_CODE_001",
+        "CANARY_PATCH_001",
+        "CANARY_COMMAND_001",
+        "CANARY_ARGUMENTS_001",
+        "CANARY_OUTPUT_001",
+        "CANARY_ABSOLUTE_PATH_001",
+        "CANARY_URL_001",
+        "CANARY_QUERY_001",
+        "CANARY_CREDENTIAL_001",
+        "CANARY_ENVIRONMENT_VARIABLE_001",
+        "CANARY_TRANSCRIPT_001",
+        "CANARY_REPOSITORY_REMOTE_001",
+        "CANARY_USER_NAME_001"
+      ]
+    },
+    {
+      "name": "unknown-native-schema",
+      "codex": [{ "hook": "UnknownFutureHook", "payload": { "marker": "opaque" } }],
+      "claude": [{ "hook": "UnknownFutureHook", "marker": "opaque" }],
+      "signals": [],
+      "requiresRejection": true
+    }
+  ]
+}

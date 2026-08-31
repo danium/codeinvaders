@@ -4,3 +4,4 @@ coverage/
 .git/
 openspec/
 agent-arcade-cross-agent-threejs-spec.md
+packaging/**/scripts/*.mjs

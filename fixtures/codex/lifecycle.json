@@ -1,0 +1,75 @@
+{
+  "version": "0.147.0",
+  "description": "Sanitized pinned Codex hook classes; no native text or raw identifiers.",
+  "events": [
+    { "class": "session-start", "input": { "hook": "SessionStart", "resume": false } },
+    { "class": "prompt", "input": { "hook": "UserPromptSubmit" } },
+    {
+      "class": "pre-tool",
+      "input": {
+        "hook": "PreToolUse",
+        "parallelGroupId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "toolUseId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "class": "pre-tool-parallel",
+      "input": {
+        "hook": "PreToolUse",
+        "parallelGroupId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "toolUseId": "oid1_BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "class": "pre-tool-blocked-without-terminal",
+      "input": {
+        "hook": "PreToolUse",
+        "toolUseId": "oid1_CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "class": "post-tool-success",
+      "input": {
+        "hook": "PostToolUse",
+        "duration_ms": 4,
+        "toolUseId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "class": "post-tool-rewritten-success",
+      "input": {
+        "hook": "PostToolUse",
+        "toolUseId": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "class": "post-tool-nonzero",
+      "input": {
+        "hook": "PostToolUseFailure",
+        "exitCode": 7,
+        "toolUseId": "oid1_BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    { "class": "permission", "input": { "hook": "PermissionRequest", "riskClass": "execute" } },
+    {
+      "class": "permission-ambiguity",
+      "input": { "hook": "PermissionRequest", "ambiguous": true }
+    },
+    {
+      "class": "subagent-start",
+      "input": {
+        "hook": "SubagentStart",
+        "agentId": "oid1_DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "parentAgentId": "oid1_EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "role": "worker",
+        "depth": 1
+      }
+    },
+    { "class": "subagent-checkpoint", "input": { "hook": "SubagentStop", "to": "waiting" } },
+    { "class": "stop", "input": { "hook": "Stop", "reason": "native" } },
+    { "class": "stop-repeated", "input": { "hook": "Stop", "reason": "native" } },
+    { "class": "adapter-restart", "input": { "hook": "SessionStart", "resume": true } },
+    { "class": "compaction", "input": { "hook": "Compact" } },
+    { "class": "session-end", "input": { "hook": "SessionEnd", "reason": "normal" } }
+  ]
+}

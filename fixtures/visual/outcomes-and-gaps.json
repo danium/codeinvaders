@@ -1,0 +1,17 @@
+{
+  "name": "outcomes-permission-gap",
+  "states": [
+    "provisional-completion",
+    "confirmed-success",
+    "failure",
+    "denial",
+    "abandonment",
+    "cancellation",
+    "correction",
+    "telemetry-gap",
+    "degraded"
+  ],
+  "textParityRequired": true,
+  "colorIndependent": true,
+  "reducedMotion": "status-change-only"
+}

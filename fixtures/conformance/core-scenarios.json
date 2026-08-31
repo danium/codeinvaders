@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "scenarios": [
+    { "name": "fallback", "events": ["turn.started", "tool.started"], "expected": "fallback" },
+    {
+      "name": "plan-cancellation",
+      "events": ["task.created", "task.cancelled", "task.completed"],
+      "expected": "cancelled"
+    },
+    {
+      "name": "parallel-tools",
+      "events": ["tool.requested", "tool.requested"],
+      "expected": "parallel-operations"
+    },
+    {
+      "name": "nested-agent",
+      "events": ["session.started", "agent.spawned", "agent.state.changed"],
+      "expected": "working-agent"
+    },
+    {
+      "name": "permission-denial",
+      "events": ["permission.requested", "permission.resolved"],
+      "expected": "denied"
+    },
+    {
+      "name": "tool-failure",
+      "events": ["tool.requested", "tool.failed"],
+      "expected": "failed-operation"
+    },
+    { "name": "telemetry-gap", "events": ["telemetry.gap"], "expected": "gap" },
+    {
+      "name": "restart-recovery",
+      "events": ["session.started", "session.ended"],
+      "expected": "sealed-session"
+    }
+  ]
+}

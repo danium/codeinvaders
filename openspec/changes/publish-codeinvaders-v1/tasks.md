@@ -38,109 +38,109 @@
 - [x] 3.2 Implement allowlist-only canonical payload builders and safe built-in tool categorization with generic defaults for unknown and MCP tools.
 - [x] 3.3 Implement structured privacy-safe diagnostics with bounded codes, counts, durations, and no copied native text.
 - [x] 3.4 Implement sanitized ingress records, stable retry event identifiers, per-record size limits, and validation before IPC or spool writes.
-- [ ] 3.5 Implement local IPC delivery over Unix-domain sockets and Windows named pipes with bounded acknowledgement time.
-- [ ] 3.6 Implement temporary-write plus atomic-rename spool fallback and recovery-safe ownership and permission handling.
-- [ ] 3.7 Implement total spool limits and explicit telemetry-gap behavior for overflow without delaying the coding agent.
-- [ ] 3.8 Build privacy-canary tests that scan spool, journal, snapshot, manifest, and diagnostics for every prohibited native field class.
-- [ ] 3.9 Build hook-latency benchmarks that include direct Node entry startup, IPC success, broker absence, and spool fallback.
+- [x] 3.5 Implement local IPC delivery over Unix-domain sockets and Windows named pipes with bounded acknowledgement time.
+- [x] 3.6 Implement temporary-write plus atomic-rename spool fallback and recovery-safe ownership and permission handling.
+- [x] 3.7 Implement total spool limits and explicit telemetry-gap behavior for overflow without delaying the coding agent.
+- [x] 3.8 Build privacy-canary tests that scan spool, journal, snapshot, manifest, and diagnostics for every prohibited native field class.
+- [x] 3.9 Build hook-latency benchmarks that include direct Node entry startup, IPC success, broker absence, and spool fallback.
 
 ## 4. Codex Adapter
 
-- [ ] 4.1 Capture and document sanitized Codex fixtures for session, prompt, pre/post tool, permission, subagent, stop, compaction, and session-end hooks.
-- [ ] 4.2 Implement Codex native-schema validation and active capability detection, including missing hosted-tool coverage.
-- [ ] 4.3 Map prompt and stop checkpoints to requested, active, and quiescent turn evidence without manufacturing successful completion.
-- [ ] 4.4 Map pre-tool evidence to provisional operations and post-tool evidence to confirmed completion or conservative failure classification using native tool-use identifiers.
-- [ ] 4.5 Map permission evidence to independently identified requests and leave operation links absent when native correlation is ambiguous.
-- [ ] 4.6 Map subagent lifecycle evidence, parent relationships, attributed tool calls, and foreground completion without treating a stoppable checkpoint as irrevocable finish.
-- [ ] 4.7 Reconcile confirmed `update_plan` revisions using stable native identity or conservative exact matching and emit cancellation rather than false completion for removals.
-- [ ] 4.8 Add Codex conformance tests for blocking hooks, rewritten tools, nonzero shell results, parallel calls, repeated stop, missing terminal events, and adapter restart.
-- [ ] 4.9 Produce a prebuilt direct Codex hook entry and transparent plugin/manual hook definitions that return no decision or context payload.
+- [x] 4.1 Capture and document sanitized Codex fixtures for session, prompt, pre/post tool, permission, subagent, stop, compaction, and session-end hooks.
+- [x] 4.2 Implement Codex native-schema validation and active capability detection, including missing hosted-tool coverage.
+- [x] 4.3 Map prompt and stop checkpoints to requested, active, and quiescent turn evidence without manufacturing successful completion.
+- [x] 4.4 Map pre-tool evidence to provisional operations and post-tool evidence to confirmed completion or conservative failure classification using native tool-use identifiers.
+- [x] 4.5 Map permission evidence to independently identified requests and leave operation links absent when native correlation is ambiguous.
+- [x] 4.6 Map subagent lifecycle evidence, parent relationships, attributed tool calls, and foreground completion without treating a stoppable checkpoint as irrevocable finish.
+- [x] 4.7 Reconcile confirmed `update_plan` revisions using stable native identity or conservative exact matching and emit cancellation rather than false completion for removals.
+- [x] 4.8 Add Codex conformance tests for blocking hooks, rewritten tools, nonzero shell results, parallel calls, repeated stop, missing terminal events, and adapter restart.
+- [x] 4.9 Produce a prebuilt direct Codex hook entry and transparent plugin/manual hook definitions that return no decision or context payload.
 
 ## 5. Claude Code Adapter
 
-- [ ] 5.1 Capture and document sanitized Claude Code fixtures for session, prompt, tool success/failure, permission, denial, task, subagent, stop, stop-failure, and session-end hooks.
-- [ ] 5.2 Implement Claude native-schema validation and per-session capability detection, including sessions without Task tools and partial permission-denial coverage.
-- [ ] 5.3 Map prompt, stop, and stop-failure evidence to requested, quiescent, confirmed-failure, and session-sealing semantics.
-- [ ] 5.4 Map `PreToolUse`, `PostToolUse`, and `PostToolUseFailure` to provisional and confirmed operation events while excluding validation and permission denials from execution failure.
-- [ ] 5.5 Map `PermissionRequest` and supported `PermissionDenied` evidence without claiming coverage for manual denials, deny rules, or unrelated hook blocks.
-- [ ] 5.6 Map `TaskCreated` and `TaskCompleted` to provisional requests and confirm committed task changes from successful task-tool evidence.
-- [ ] 5.7 Map subagent identity, nesting, tool attribution, foreground/background lifecycle, and resumable subagent-stop checkpoints.
-- [ ] 5.8 Add Claude conformance tests for blocked task creation/completion, auto and manual denial gaps, background agents, parallel tools, API stop failure, and missing Task tools.
-- [ ] 5.9 Produce a prebuilt direct Claude hook entry and transparent plugin/manual hook definitions that return no decision or context payload.
+- [x] 5.1 Capture and document sanitized Claude Code fixtures for session, prompt, tool success/failure, permission, denial, task, subagent, stop, stop-failure, and session-end hooks.
+- [x] 5.2 Implement Claude native-schema validation and per-session capability detection, including sessions without Task tools and partial permission-denial coverage.
+- [x] 5.3 Map prompt, stop, and stop-failure evidence to requested, quiescent, confirmed-failure, and session-sealing semantics.
+- [x] 5.4 Map `PreToolUse`, `PostToolUse`, and `PostToolUseFailure` to provisional and confirmed operation events while excluding validation and permission denials from execution failure.
+- [x] 5.5 Map `PermissionRequest` and supported `PermissionDenied` evidence without claiming coverage for manual denials, deny rules, or unrelated hook blocks.
+- [x] 5.6 Map `TaskCreated` and `TaskCompleted` to provisional requests and confirm committed task changes from successful task-tool evidence.
+- [x] 5.7 Map subagent identity, nesting, tool attribution, foreground/background lifecycle, and resumable subagent-stop checkpoints.
+- [x] 5.8 Add Claude conformance tests for blocked task creation/completion, auto and manual denial gaps, background agents, parallel tools, API stop failure, and missing Task tools.
+- [x] 5.9 Produce a prebuilt direct Claude hook entry and transparent plugin/manual hook definitions that return no decision or context payload.
 
 ## 6. Canonical Journal and Semantic Core
 
-- [ ] 6.1 Implement the broker ingress canonicalizer with event-ID deduplication, durable stream sequence assignment, append acknowledgement, and sanitized rejection paths.
-- [ ] 6.2 Implement segmented per-stream JSONL journals with complete-record writes, rotation, bounded records, and user-only storage permissions where supported.
-- [ ] 6.3 Implement startup recovery for pending spool records, partial final journal records, corrupt records, duplicates, and interrupted segment rotation.
-- [ ] 6.4 Implement the rebuildable session manifest and consistency repair after retention or manual file loss.
-- [ ] 6.5 Define canonical semantic state and pure reducers for sources, sessions, turns, agents, tasks, operations, permissions, gaps, and diagnostics.
-- [ ] 6.6 Implement requested-active-quiescent-sealed turn transitions and starting-working-quiescent-finished agent transitions with resumable provisional state.
-- [ ] 6.7 Implement operation and task terminal monotonicity, explicit correction handling, conservative unknown closure, and no timeout-to-success path.
-- [ ] 6.8 Implement reducer-owned structural root agents and exactly one turn-scoped fallback objective outside the real task collection.
-- [ ] 6.9 Implement versioned canonical snapshots with sorted state, stream positions, compatibility checks, atomic writes, and journal rebuild fallback.
-- [ ] 6.10 Implement deterministic replay, idle compression, speed control, seek, semantic-event indexing, filters, and live-edge return over canonical events only.
-- [ ] 6.11 Add golden tests for live/replay byte equivalence, duplicates, gaps, conflicting terminals, cross-stream tie-breaking, restart recovery, and incompatible snapshots.
-- [ ] 6.12 Implement verified-path journal retention and derived-artifact invalidation with tests for symlink and path-escape attempts.
+- [x] 6.1 Implement the broker ingress canonicalizer with event-ID deduplication, durable stream sequence assignment, append acknowledgement, and sanitized rejection paths.
+- [x] 6.2 Implement segmented per-stream JSONL journals with complete-record writes, rotation, bounded records, and user-only storage permissions where supported.
+- [x] 6.3 Implement startup recovery for pending spool records, partial final journal records, corrupt records, duplicates, and interrupted segment rotation.
+- [x] 6.4 Implement the rebuildable session manifest and consistency repair after retention or manual file loss.
+- [x] 6.5 Define canonical semantic state and pure reducers for sources, sessions, turns, agents, tasks, operations, permissions, gaps, and diagnostics.
+- [x] 6.6 Implement requested-active-quiescent-sealed turn transitions and starting-working-quiescent-finished agent transitions with resumable provisional state.
+- [x] 6.7 Implement operation and task terminal monotonicity, explicit correction handling, conservative unknown closure, and no timeout-to-success path.
+- [x] 6.8 Implement reducer-owned structural root agents and exactly one turn-scoped fallback objective outside the real task collection.
+- [x] 6.9 Implement versioned canonical snapshots with sorted state, stream positions, compatibility checks, atomic writes, and journal rebuild fallback.
+- [x] 6.10 Implement deterministic replay, idle compression, speed control, seek, semantic-event indexing, filters, and live-edge return over canonical events only.
+- [x] 6.11 Add golden tests for live/replay byte equivalence, duplicates, gaps, conflicting terminals, cross-stream tie-breaking, restart recovery, and incompatible snapshots.
+- [x] 6.12 Implement verified-path journal retention and derived-artifact invalidation with tests for symlink and path-escape attempts.
 
 ## 7. Secure Local Runtime
 
-- [ ] 7.1 Implement broker startup on loopback-only HTTP and a separate local hook IPC endpoint, with refusal of non-loopback browser binds.
-- [ ] 7.2 Implement per-process browser secrets, fragment-or-equivalent secure launch transfer, in-memory session exchange, rotation, expiry, and restart invalidation.
-- [ ] 7.3 Implement exact origin validation, authenticated HTTP replay/session APIs, authenticated WebSocket live delivery, and bounded client queues.
-- [ ] 7.4 Add a restrictive Content Security Policy, immutable local asset serving, no dynamic evaluation, and no runtime remote asset dependency.
-- [ ] 7.5 Validate all ingress, journal, snapshot, API, and WebSocket data at trust boundaries with size, depth, count, and rate limits.
-- [ ] 7.6 Implement application-data discovery, secure directory creation, config and local-salt management, safe rotation, and crash-consistent writes on all supported platforms.
-- [ ] 7.7 Implement status, retention, and explicit delete-all runtime operations with verified owned targets and symlink-safe behavior.
-- [ ] 7.8 Add malicious-input tests for oversized payloads, malformed JSON, unsupported versions, markup labels, origin attacks, stale secrets, slow clients, and corrupted local files.
+- [x] 7.1 Implement broker startup on loopback-only HTTP and a separate local hook IPC endpoint, with refusal of non-loopback browser binds.
+- [x] 7.2 Implement per-process browser secrets, fragment-or-equivalent secure launch transfer, in-memory session exchange, rotation, expiry, and restart invalidation.
+- [x] 7.3 Implement exact origin validation, authenticated HTTP replay/session APIs, authenticated WebSocket live delivery, and bounded client queues.
+- [x] 7.4 Add a restrictive Content Security Policy, immutable local asset serving, no dynamic evaluation, and no runtime remote asset dependency.
+- [x] 7.5 Validate all ingress, journal, snapshot, API, and WebSocket data at trust boundaries with size, depth, count, and rate limits.
+- [x] 7.6 Implement application-data discovery, secure directory creation, config and local-salt management, safe rotation, and crash-consistent writes on all supported platforms.
+- [x] 7.7 Implement status, retention, and explicit delete-all runtime operations with verified owned targets and symlink-safe behavior.
+- [x] 7.8 Add malicious-input tests for oversized payloads, malformed JSON, unsupported versions, markup labels, origin attacks, stale secrets, slow clients, and corrupted local files.
 
 ## 8. Browser UI and Three.js Presentation
 
-- [ ] 8.1 Build the browser shell with repository/session selection, telemetry badge, live status, inspector, settings, replay controls, and text activity feed.
-- [ ] 8.2 Implement a versioned pure presentation mapper from semantic transitions to semantic-time animation intents.
-- [ ] 8.3 Implement the original retro-futurist arena, structural carrier, child ships, nested hierarchy, real task enemies, and distinct fallback objective using original assets.
-- [ ] 8.4 Implement provisional tool charge, permission lock, confirmed success impact, failure, denial, abandonment, and unattributed-operation treatments.
-- [ ] 8.5 Implement task creation, reorder, assignment, provisional completion, confirmed explosion, failure, cancellation retreat, and explicit correction treatments.
-- [ ] 8.6 Implement turn quiescence, resumed activity, level outcome, session ending, capability degradation, and telemetry-gap presentations without invented progress.
-- [ ] 8.7 Implement seek-safe replay rendering from absolute semantic time and deterministic mapper seeds.
-- [ ] 8.8 Add instanced repeated geometry, bounded object pools, effect coalescing, density reduction, fixed cosmetic simulation, and explicit resource disposal.
-- [ ] 8.9 Implement complete keyboard navigation, logical focus, color-independent status shapes, high contrast, reduced motion, and rate-limited live-region announcements.
-- [ ] 8.10 Implement WebGL initialization failure handling and semantic parity through the text feed and DOM inspector.
-- [ ] 8.11 Add visual-state fixtures and automated tests for parallel tools from one ship, multiple subagents, all task terminals, permissions, gaps, degraded modes, and replay seeks.
-- [ ] 8.12 Add performance instrumentation and acceptance fixtures for 100 semantic entities, 300 pooled effects, sustained event storms, memory stability, and live latency.
+- [x] 8.1 Build the browser shell with repository/session selection, telemetry badge, live status, inspector, settings, replay controls, and text activity feed.
+- [x] 8.2 Implement a versioned pure presentation mapper from semantic transitions to semantic-time animation intents.
+- [x] 8.3 Implement the original retro-futurist arena, structural carrier, child ships, nested hierarchy, real task enemies, and distinct fallback objective using original assets.
+- [x] 8.4 Implement provisional tool charge, permission lock, confirmed success impact, failure, denial, abandonment, and unattributed-operation treatments.
+- [x] 8.5 Implement task creation, reorder, assignment, provisional completion, confirmed explosion, failure, cancellation retreat, and explicit correction treatments.
+- [x] 8.6 Implement turn quiescence, resumed activity, level outcome, session ending, capability degradation, and telemetry-gap presentations without invented progress.
+- [x] 8.7 Implement seek-safe replay rendering from absolute semantic time and deterministic mapper seeds.
+- [x] 8.8 Add instanced repeated geometry, bounded object pools, effect coalescing, density reduction, fixed cosmetic simulation, and explicit resource disposal.
+- [x] 8.9 Implement complete keyboard navigation, logical focus, color-independent status shapes, high contrast, reduced motion, and rate-limited live-region announcements.
+- [x] 8.10 Implement WebGL initialization failure handling and semantic parity through the text feed and DOM inspector.
+- [x] 8.11 Add visual-state fixtures and automated tests for parallel tools from one ship, multiple subagents, all task terminals, permissions, gaps, degraded modes, and replay seeks.
+- [x] 8.12 Add performance instrumentation and acceptance fixtures for 100 semantic entities, 300 pooled effects, sustained event storms, memory stability, and live latency.
 
 ## 9. CLI and Installation Lifecycle
 
-- [ ] 9.1 Implement CLI argument parsing, configuration discovery, stable exit codes, noninteractive operation, and help for install, start, status, doctor, replay, upgrade, and uninstall.
-- [ ] 9.2 Implement Codex and Claude Code environment and surface detection with documented capability and plugin/manual-install limitations.
-- [ ] 9.3 Implement dry-run configuration diffs and parsers that compose uniquely owned CodeInvaders entries without replacing unrelated hooks.
-- [ ] 9.4 Implement user-scope installation by default and explicit confirmation plus repository-visible file reporting for project scope.
-- [ ] 9.5 Implement atomic configuration writes, recovery copies, post-write validation, and rollback when doctor fails.
-- [ ] 9.6 Implement `start` process lifecycle, browser launch, stale runtime detection, clean shutdown, and actionable port or data-directory errors.
-- [ ] 9.7 Implement `doctor` checks for hooks, direct entry files, permissions, storage, IPC, browser authentication, assets, adapters, and a privacy-safe synthetic event round trip.
-- [ ] 9.8 Implement compatibility-aware upgrade with configuration rollback and refusal of destructive journal migrations.
-- [ ] 9.9 Implement ownership-aware uninstall that preserves recordings by default and removes only recognized CodeInvaders entries and files.
+- [x] 9.1 Implement CLI argument parsing, configuration discovery, stable exit codes, noninteractive operation, and help for install, start, status, doctor, replay, upgrade, and uninstall.
+- [x] 9.2 Implement Codex and Claude Code environment and surface detection with documented capability and plugin/manual-install limitations.
+- [x] 9.3 Implement dry-run configuration diffs and parsers that compose uniquely owned CodeInvaders entries without replacing unrelated hooks.
+- [x] 9.4 Implement user-scope installation by default and explicit confirmation plus repository-visible file reporting for project scope.
+- [x] 9.5 Implement atomic configuration writes, recovery copies, post-write validation, and rollback when doctor fails.
+- [x] 9.6 Implement `start` process lifecycle, browser launch, stale runtime detection, clean shutdown, and actionable port or data-directory errors.
+- [x] 9.7 Implement `doctor` checks for hooks, direct entry files, permissions, storage, IPC, browser authentication, assets, adapters, and a privacy-safe synthetic event round trip.
+- [x] 9.8 Implement compatibility-aware upgrade with configuration rollback and refusal of destructive journal migrations.
+- [x] 9.9 Implement ownership-aware uninstall that preserves recordings by default and removes only recognized CodeInvaders entries and files.
 - [ ] 9.10 Add full install-start-doctor-replay-upgrade-uninstall tests on clean and preconfigured Windows, macOS, and Linux environments.
 
 ## 10. Conformance, Security, and Release Hardening
 
-- [ ] 10.1 Build the shared adapter conformance runner and golden scenarios for fallback, plans, cancellation, parallel tools, nested agents, permissions, failure, duplicates, gaps, restart, and sensitive canaries.
+- [x] 10.1 Build the shared adapter conformance runner and golden scenarios for fallback, plans, cancellation, parallel tools, nested agents, permissions, failure, duplicates, gaps, restart, and sensitive canaries.
 - [ ] 10.2 Run recorded real-session conformance for one supported Codex version and one supported Claude Code version and document the observed capability profiles.
-- [ ] 10.3 Add fuzz and property tests for schema validation, reducer determinism, canonical serialization, journal recovery, and configuration composition.
+- [x] 10.3 Add fuzz and property tests for schema validation, reducer determinism, canonical serialization, journal recovery, and configuration composition.
 - [ ] 10.4 Add accessibility automation plus manual keyboard, screen-reader, contrast, reduced-motion, and WebGL-fallback release checks.
 - [ ] 10.5 Establish and measure release budgets for full hook latency, event-to-presentation latency, frame rate, memory, spool growth, and replay seek time on reference systems.
-- [ ] 10.6 Perform the loopback authentication, origin, CSP, path traversal, symlink deletion, secret handling, dependency, and malicious-journal security review.
-- [ ] 10.7 Verify default offline operation with network access disabled and scan production assets and code for unexpected remote endpoints or analytics.
-- [ ] 10.8 Produce a release-gate report linking every capability scenario to automated or documented manual evidence.
+- [x] 10.6 Perform the loopback authentication, origin, CSP, path traversal, symlink deletion, secret handling, dependency, and malicious-journal security review.
+- [x] 10.7 Verify default offline operation with network access disabled and scan production assets and code for unexpected remote endpoints or analytics.
+- [x] 10.8 Produce a release-gate report linking every capability scenario to automated or documented manual evidence.
 
 ## 11. Documentation and Public Repository
 
-- [ ] 11.1 Write the public README with honest product claims, screenshots or recordings from sanitized fixtures, quick start, privacy defaults, limitations, and supported environments.
-- [ ] 11.2 Write protocol, adapter-authoring, architecture, replay, data-layout, privacy, threat-model, accessibility, and troubleshooting documentation.
-- [ ] 11.3 Write contributor setup, testing, fixture sanitization, design-decision, code-of-conduct, governance, and compatibility documentation.
-- [ ] 11.4 Add `SECURITY.md` with private reporting, supported versions, response expectations, and guidance not to attach event logs by default.
-- [ ] 11.5 Add GitHub issue and pull-request templates, ownership metadata, branch protection documentation, and required-check configuration.
-- [ ] 11.6 Create release scripts for version consistency, changelog generation, production builds, dependency and license inventory, SHA-256 checksums, and provenance where supported.
+- [x] 11.1 Write the public README with honest product claims, screenshots or recordings from sanitized fixtures, quick start, privacy defaults, limitations, and supported environments.
+- [x] 11.2 Write protocol, adapter-authoring, architecture, replay, data-layout, privacy, threat-model, accessibility, and troubleshooting documentation.
+- [x] 11.3 Write contributor setup, testing, fixture sanitization, design-decision, code-of-conduct, governance, and compatibility documentation.
+- [x] 11.4 Add `SECURITY.md` with private reporting, supported versions, response expectations, and guidance not to attach event logs by default.
+- [x] 11.5 Add GitHub issue and pull-request templates, ownership metadata, branch protection documentation, and required-check configuration.
+- [x] 11.6 Create release scripts for version consistency, changelog generation, production builds, dependency and license inventory, SHA-256 checksums, and provenance where supported.
 - [ ] 11.7 Verify a clean clone of the release candidate can install, build, test, run, record, replay, and uninstall using only public source and documented dependencies.
 - [ ] 11.8 Synchronize the complete history to the preflight-verified `github.com/danium/codeinvaders` repository, enable private vulnerability reporting, and configure protected release workflows.
 

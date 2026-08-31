@@ -1,0 +1,20 @@
+{
+  "name": "codeinvaders-local",
+  "interface": {
+    "displayName": "CodeInvaders Local"
+  },
+  "plugins": [
+    {
+      "name": "codeinvaders",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codeinvaders"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

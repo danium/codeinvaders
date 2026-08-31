@@ -1,0 +1,64 @@
+{
+  "adapter": "claude",
+  "adapterVersion": "0.1.0",
+  "nativeVersion": "2.1.227",
+  "events": [
+    { "hook_event_name": "SessionStart" },
+    { "hook_event_name": "UserPromptSubmit" },
+    {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Read",
+      "tool_use_id": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "agent_id": "oid1_CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_use_id": "oid1_BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "agent_id": "oid1_CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "hook_event_name": "PostToolUse",
+      "tool_name": "Read",
+      "tool_use_id": "oid1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "status": "completed",
+      "duration_ms": 12
+    },
+    {
+      "hook_event_name": "PostToolUseFailure",
+      "tool_name": "bash",
+      "tool_use_id": "oid1_BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "status": "failed"
+    },
+    {
+      "hook_event_name": "PostToolUseFailure",
+      "tool_name": "bash",
+      "reason": "validation"
+    },
+    {
+      "hook_event_name": "PermissionRequest",
+      "tool_name": "bash",
+      "tool_use_id": "oid1_BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    { "hook_event_name": "PermissionDenied", "tool_name": "bash", "status": "denied" },
+    { "hook_event_name": "TaskCreated" },
+    { "hook_event_name": "TaskCompleted" },
+    { "hook_event_name": "TaskCompleted", "tool_name": "Task", "success": true },
+    {
+      "hook_event_name": "SubagentStart",
+      "agent_id": "oid1_CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "parent_agent_id": "oid1_DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "background": true
+    },
+    { "hook_event_name": "SubagentStop", "background": true },
+    {
+      "hook_event_name": "SubagentStart",
+      "agent_id": "oid1_EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "background": false
+    },
+    { "hook_event_name": "SubagentStop", "background": false },
+    { "hook_event_name": "Stop" },
+    { "hook_event_name": "StopFailure" },
+    { "hook_event_name": "SessionEnd" }
+  ]
+}

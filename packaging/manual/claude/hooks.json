@@ -1,0 +1,41 @@
+{
+  "description": "CodeInvaders Claude Code hooks. The command reads one native hook envelope from stdin, emits the required empty native response, and writes only sanitized local events.",
+  "hooks": {
+    "SessionStart": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "SessionEnd": [{ "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }],
+    "UserPromptSubmit": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "PreToolUse": [{ "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }],
+    "PostToolUse": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "PostToolUseFailure": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "PermissionRequest": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "PermissionDenied": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "Stop": [{ "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }],
+    "StopFailure": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "TaskCreated": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "TaskCompleted": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "SubagentStart": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ],
+    "SubagentStop": [
+      { "type": "command", "command": "node ./scripts/codeinvaders-claude-hook.mjs" }
+    ]
+  }
+}

@@ -4,7 +4,13 @@ This file is generated from the committed `pnpm-lock.yaml` dependency graph.
 Regenerate it with `pnpm third-party-notices:generate`; CI uses
 `pnpm third-party-notices:check` to ensure it is current.
 
-Dependency records: 135
+Dependency records: 144
+
+## @dimforge/rapier3d-compat 0.12.0
+
+- License: Apache-2.0
+- Homepage: https://rapier.rs
+- Description: 3-dimensional physics engine in Rust - official JS bindings. Compatibility package with inlined webassembly as base64.
 
 ## @eslint-community/eslint-utils 4.10.1
 
@@ -128,6 +134,13 @@ Dependency records: 135
 - Homepage: https://standardschema.dev
 - Description: A family of specs for interoperable TypeScript
 
+## @tweenjs/tween.js 23.1.3
+
+- License: MIT
+- Author: tween.js contributors
+- Homepage: https://github.com/tweenjs/tween.js
+- Description: Simple and fast tweening engine with optimised Robert Penner's equations.
+
 ## @types/chai 5.2.3
 
 - License: MIT
@@ -157,6 +170,24 @@ Dependency records: 135
 - License: MIT
 - Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/json-schema
 - Description: TypeScript definitions for json-schema
+
+## @types/stats.js 0.17.4
+
+- License: MIT
+- Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/stats.js
+- Description: TypeScript definitions for stats.js
+
+## @types/three 0.180.0
+
+- License: MIT
+- Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/three
+- Description: TypeScript definitions for three
+
+## @types/webxr 0.5.24
+
+- License: MIT
+- Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/webxr
+- Description: TypeScript definitions for webxr
 
 ## @typescript-eslint/eslint-plugin 8.67.0
 
@@ -259,6 +290,11 @@ Dependency records: 135
 - License: MIT
 - Homepage: https://github.com/vitest-dev/vitest/tree/main/packages/utils
 - Description: Shared Vitest utility functions
+
+## @webgpu/types 0.1.72
+
+- License: BSD-3-Clause
+- Homepage: https://github.com/gpuweb/types
 
 ## acorn-jsx 5.3.2
 
@@ -481,6 +517,13 @@ Dependency records: 135
 - Homepage: https://github.com/thecodrr/fdir#readme
 - Description: The fastest directory crawler & globbing alternative to glob, fast-glob, & tiny-glob. Crawls 1m files in < 1s
 
+## fflate 0.8.3
+
+- License: MIT
+- Author: Arjun Barrett
+- Homepage: https://101arrowz.github.io/fflate
+- Description: High performance (de)compression in an 8kB package
+
 ## file-entry-cache 8.0.0
 
 - License: MIT
@@ -625,6 +668,13 @@ Dependency records: 135
 - Author: Rich Harris
 - Homepage: https://github.com/Rich-Harris/magic-string#readme
 - Description: Modify strings, generate sourcemaps
+
+## meshoptimizer 0.22.0
+
+- License: MIT
+- Author: Arseny Kapoulkine
+- Homepage: https://github.com/zeux/meshoptimizer
+- Description: Mesh optimizaiton library that makes meshes smaller and faster to render
 
 ## minimatch 10.2.6
 
@@ -803,6 +853,13 @@ Dependency records: 135
 - License: MIT
 - Homepage: https://github.com/unjs/std-env#readme
 - Description: Runtime agnostic JS utils
+
+## three 0.180.0
+
+- License: MIT
+- Author: mrdoob
+- Homepage: https://threejs.org/
+- Description: JavaScript 3D library
 
 ## tinybench 2.9.0
 

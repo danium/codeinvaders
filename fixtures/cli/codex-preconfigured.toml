@@ -1,0 +1,4 @@
+# User-owned Codex configuration fixture
+timeout = 20
+[display]
+color = "auto"

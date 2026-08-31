@@ -1,0 +1,15 @@
+{
+  "name": "semantic-state-release-scenarios",
+  "scenarios": [
+    "parallel-tools-one-carrier",
+    "nested-subagents",
+    "all-task-terminals",
+    "permission-outcomes",
+    "telemetry-gap-degraded",
+    "replay-seeks"
+  ],
+  "taskTerminals": ["completed", "failed", "denied", "cancelled", "abandoned", "unknown"],
+  "assertionBoundary": "semantic-state-and-mapper-intents",
+  "nativeText": "excluded",
+  "pixels": "excluded"
+}

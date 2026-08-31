@@ -6,6 +6,9 @@
   "files": [
     "dist"
   ],
+  "bin": {
+    "codeinvaders-claude-hook": "dist/hook.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

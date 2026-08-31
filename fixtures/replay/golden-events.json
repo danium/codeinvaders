@@ -1,0 +1,21 @@
+[
+  {
+    "spec": "io.github.danium.codeinvaders.aap",
+    "version": "1.0.0",
+    "eventId": "fixture-session-start",
+    "type": "session.started",
+    "occurredAt": "2026-08-15T14:22:31.120Z",
+    "observedAt": "2026-08-15T14:22:31.127Z",
+    "sequence": 1,
+    "source": {
+      "adapterId": "fixture-adapter",
+      "adapterVersion": "0.1.0",
+      "streamId": "fixture-stream",
+      "epochId": "fixture-epoch"
+    },
+    "scope": { "workspaceId": "fixture-workspace", "sessionId": "fixture-session" },
+    "fidelity": "observed",
+    "finality": "confirmed",
+    "data": { "resume": false }
+  }
+]

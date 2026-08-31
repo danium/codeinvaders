@@ -1,0 +1,8 @@
+{
+  "name": "codeinvaders-claude-hook",
+  "version": "0.1.0",
+  "adapter": "claude-code",
+  "entry": "scripts/codeinvaders-claude-hook.mjs",
+  "hooks": "hooks.json",
+  "runtime": "node-builtins-only"
+}

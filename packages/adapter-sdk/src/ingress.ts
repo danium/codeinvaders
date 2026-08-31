@@ -247,6 +247,11 @@ export type AcceptedIngressPreparation = {
   readonly handoff: (writer: unknown) => IngressHandoffResult;
 };
 
+const acceptedPreparations = new WeakSet<object>();
+export function isAcceptedIngressPreparation(value: unknown): value is AcceptedIngressPreparation {
+  return !!value && typeof value === 'object' && acceptedPreparations.has(value);
+}
+
 export type IngressPreparationResult =
   | AcceptedIngressPreparation
   | {
@@ -1377,7 +1382,7 @@ export function sanitizeIngressRecord(input: unknown, options?: unknown): Ingres
       handoffActive = false;
     }
   };
-  return makeImmutableRecord<AcceptedIngressPreparation>([
+  const accepted = makeImmutableRecord<AcceptedIngressPreparation>([
     ['status', 'accepted'],
     ['record', canonical],
     ['eventId', eventId],
@@ -1386,6 +1391,8 @@ export function sanitizeIngressRecord(input: unknown, options?: unknown): Ingres
     ['diagnostics', EMPTY_DIAGNOSTICS],
     ['handoff', handoff],
   ]);
+  acceptedPreparations.add(accepted);
+  return accepted;
 }
 
 /** Descriptive aliases for transport implementations and tests. */

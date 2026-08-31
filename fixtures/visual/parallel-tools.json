@@ -1,0 +1,9 @@
+{
+  "name": "parallel-tools-one-carrier",
+  "assertions": {
+    "carrierCount": 1,
+    "operationEffects": 3,
+    "fleetCount": 1,
+    "semanticEventsDropped": 0
+  }
+}

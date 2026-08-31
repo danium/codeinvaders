@@ -113,6 +113,8 @@ export {
   MAX_OPAQUE_ID_COMPONENTS,
   MAX_OPAQUE_ID_INPUT_BYTES,
 } from './identity.js';
+export { scanPrivacyCanaries } from './privacy-canary.js';
+export type { CanaryScanResult } from './privacy-canary.js';
 
 export {
   buildSanitizedIngressRecord,
@@ -121,9 +123,29 @@ export {
   MAX_INGRESS_RECORD_BYTES,
   MAX_INGRESS_RECORD_DEPTH,
   prepareSanitizedIngressRecord,
+  isAcceptedIngressPreparation,
   sanitizeIngressRecord,
   StableRetryEventIdError,
 } from './ingress.js';
+export {
+  IPC_DEADLINE_MS,
+  MAX_SPOOL_BYTES,
+  MAX_SPOOL_RECORDS,
+  MAX_SPOOL_RECORD_BYTES,
+  createSanitizedIngressHandoff,
+  recoverSpool,
+  sendCanonicalIpc,
+  spoolCanonical,
+  validateInstallationEndpoint,
+  deriveInstallationEndpoint,
+  deriveLocalEndpoint,
+} from './transport.js';
+export type {
+  IpcResult,
+  LocalEndpoint,
+  SanitizedIngressHandoff,
+  SpoolResult,
+} from './transport.js';
 export type {
   AcceptedIngressPreparation,
   CanonicalIngressJson,
@@ -134,6 +156,23 @@ export type {
   SanitizedIngressRecord,
   StableRetryEventIdErrorCode,
 } from './ingress.js';
+export {
+  buildDirectEvent,
+  deliverDirectEvent,
+  directNativeIdentity,
+  directNativeTimestamp,
+  recordDirectDiagnostic,
+  readDirectHookInput,
+  DIRECT_HOOK_DATA_ENV,
+  DIRECT_HOOK_SALT_FILE,
+  DIRECT_HOOK_EPOCH_FILE,
+  DIRECT_HOOK_RUNTIME_FILE,
+  DIRECT_HOOK_RUNTIME_COMPAT_FILE,
+  DIRECT_HOOK_SPOOL_DIRECTORY,
+  DIRECT_HOOK_DIAGNOSTICS_DIRECTORY,
+  DIRECT_HOOK_DIAGNOSTIC_LIMIT,
+} from './direct-hook.js';
+export type { DirectEventDescriptor } from './direct-hook.js';
 export type {
   OpaqueId,
   OpaqueIdDeriver,
