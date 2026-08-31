@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, extname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, extname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import {
   assertReleaseVersion,
@@ -22,7 +23,6 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: 'utf8',
-    shell: options.shell ?? false,
     stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
   });
   if (result.error || result.status !== 0) {
@@ -36,10 +36,28 @@ function pnpm(args, options) {
   if (executable && ['.js', '.cjs', '.mjs'].includes(extname(executable).toLowerCase())) {
     return run(process.execPath, [executable, ...args], options);
   }
-  return run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', args, {
-    ...options,
-    shell: process.platform === 'win32',
-  });
+  if (process.platform === 'win32') {
+    const candidates = [
+      process.env.APPDATA &&
+        join(process.env.APPDATA, 'npm', 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
+      process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'pnpm', 'pnpm.cjs'),
+    ].filter(Boolean);
+    const script = candidates.find((candidate) => existsSync(candidate));
+    if (script) return run(process.execPath, [script, ...args], options);
+    throw new Error('pnpm runtime is unavailable; invoke this script through pnpm release:prepare');
+  }
+  return run('pnpm', args, options);
+}
+
+const excludedReleaseSegments = new Set(['.pnpm-store', 'coverage', 'dist', 'node_modules']);
+function includeReleaseSource(source) {
+  const path = relative(root, source);
+  if (!path || path.startsWith('..')) return false;
+  const segments = path.split(/[\\/]/);
+  return (
+    !segments.some((segment) => excludedReleaseSegments.has(segment)) &&
+    !segments.at(-1)?.endsWith('.tsbuildinfo')
+  );
 }
 
 run(process.execPath, [
@@ -83,10 +101,16 @@ const copyTargets = [
   'tests',
 ];
 for (const target of copyTargets) {
-  await cp(resolve(root, target), resolve(stage, target), { recursive: true });
+  await cp(resolve(root, target), resolve(stage, target), {
+    recursive: true,
+    filter: includeReleaseSource,
+  });
 }
 for (const directory of ['packages', 'apps'])
-  await cp(resolve(root, directory), resolve(stage, directory), { recursive: true });
+  await cp(resolve(root, directory), resolve(stage, directory), {
+    recursive: true,
+    filter: includeReleaseSource,
+  });
 
 const changelog = await readFile(resolve(root, 'CHANGELOG.md'), 'utf8');
 const section = extractChangelogSection(changelog, version);
