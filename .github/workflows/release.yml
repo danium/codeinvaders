@@ -96,9 +96,9 @@ jobs:
         run: pnpm check
       - name: Build and verify release artifacts
         env:
-          RELEASE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_VERSION: ${{ steps.release-ref.outputs.tag }}
           CODEINVADERS_VERIFIED_RELEASE_TAG: ${{ steps.release-ref.outputs.tag }}
-        run: pnpm release:prepare -- --version=${RELEASE_VERSION#v}
+        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$RELEASE_VERSION" pnpm release:prepare -- --version=${RELEASE_VERSION#v}
       - name: Upload workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
