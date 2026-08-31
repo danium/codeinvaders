@@ -43,6 +43,7 @@ declare module 'node:net' {
     setEncoding(encoding: string): void;
     on(event: string, listener: (chunk: string | Buffer) => void): this;
     once(event: string, listener: () => void): this;
+    write(data: Uint8Array): boolean;
     end(data?: Uint8Array): void;
     destroy(): void;
   }

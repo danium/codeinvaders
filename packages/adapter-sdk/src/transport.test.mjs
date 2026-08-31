@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { setTimeout } from 'node:timers';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createServer } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -42,6 +42,7 @@ async function fixture() {
   return { root, handoff: createSanitizedIngressHandoff(preparation) };
 }
 async function serverAt(address, reply) {
+  if (address.startsWith('/')) await fs.mkdir(dirname(address), { recursive: true });
   const server = createServer((socket) =>
     typeof reply === 'function' ? reply(socket) : socket.end(reply),
   );

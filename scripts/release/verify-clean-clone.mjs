@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { setTimeout } from 'node:timers';
 
 const root = resolve(import.meta.dirname, '..', '..');
@@ -21,6 +22,20 @@ const defaultTimeoutMs =
   Number.isSafeInteger(requestedTimeout) && requestedTimeout >= 1_000
     ? requestedTimeout
     : 5 * 60 * 1000;
+
+async function availablePort() {
+  const server = createServer();
+  await new Promise((resolveReady, reject) => {
+    server.once('error', reject);
+    server.listen({ host: '127.0.0.1', port: 0 }, resolveReady);
+  });
+  const address = server.address();
+  await new Promise((resolveClosed, reject) =>
+    server.close((error) => (error ? reject(error) : resolveClosed())),
+  );
+  if (!address || typeof address === 'string') throw new Error('port-probe-failed');
+  return address.port;
+}
 
 function run(command, args, options = {}) {
   const captureLimit = options.captureLimit ?? maxOutputBytes;
@@ -426,7 +441,14 @@ try {
     const installJson = parseCliJson(installCli);
     lifecycle.isolatedConfiguration = installCli.code === 0 && installJson ? 'passed' : 'failed';
 
-    const start = await cli(cloneRoot, env, ['start', '--no-browser', '--json']);
+    const port = await availablePort();
+    const start = await cli(cloneRoot, env, [
+      'start',
+      '--no-browser',
+      '--port',
+      String(port),
+      '--json',
+    ]);
     steps.push(outcome('cli-start', start));
     const statusAfterStart = await cli(cloneRoot, env, ['status', '--json']);
     steps.push(outcome('cli-status-after-start', statusAfterStart));

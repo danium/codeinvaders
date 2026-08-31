@@ -140,10 +140,14 @@ describe('local runtime adversarial ingress', () => {
           socket,
         ),
       ).toBe(true);
+      // Exercise the queue bound directly. Going through journal ingestion here
+      // made the test depend on filesystem timing and occasionally exceed the
+      // Windows CI timeout, while the behavior under test is broadcast flow.
+      const broadcast = (broker as unknown as { broadcast(message: unknown): void }).broadcast.bind(
+        broker,
+      );
       for (let index = 0; index < RUNTIME_LIMITS.maxClientQueue + 2; index++)
-        await broker.ingest(
-          event(`slow-${index}`, 'session.started', index + 1, { resume: false }),
-        );
+        broadcast({ type: 'event', event: { sequence: index } });
       expect(destroyed).toBe(true);
       expect(listeners.has('close')).toBe(true);
     });

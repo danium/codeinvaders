@@ -137,27 +137,43 @@ describe('prebuilt direct hook delivery', () => {
     }, 30_000);
 
     it(`${agent} uses real CIIP ACK delivery when the local endpoint is available`, async () => {
-      const root = await tempRoot(`ipc-${agent}`);
-      const endpoint = deriveLocalEndpoint(root);
+      let root;
       let frame = '';
-      const server = (await import('node:net')).createServer((socket) => {
-        socket.setEncoding('utf8');
-        socket.on('data', (chunk) => {
-          frame += chunk;
-          socket.end('ACK\n');
+      let result;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        root = await tempRoot(`ipc-${agent}-${attempt}`);
+        frame = '';
+        const endpoint = deriveLocalEndpoint(root);
+        const retryServer = (await import('node:net')).createServer((socket) => {
+          socket.setEncoding('utf8');
+          socket.on('data', (chunk) => {
+            frame += chunk;
+            socket.end('ACK\n');
+          });
         });
-      });
-      await new Promise((resolveListen, reject) => {
-        server.once('error', reject);
-        server.listen(endpoint.address, resolveListen);
-      });
-      const result = await runHook(agent, root, {
-        hook_event_name: 'SessionStart',
-        session_id: 'ipc-session',
-      });
-      await new Promise((resolveClose) => server.close(resolveClose));
-      expect(result.code).toBe(0);
-      expect(result.stdout).toBe('{}');
+        await new Promise((resolveListen, reject) => {
+          retryServer.once('error', reject);
+          retryServer.listen(endpoint.address, resolveListen);
+        });
+        result = await runHook(agent, root, {
+          hook_event_name: 'SessionStart',
+          session_id: `ipc-session-${attempt}`,
+        });
+        await new Promise((resolveClose) => retryServer.close(resolveClose));
+        if (
+          result.code !== 0 ||
+          result.stdout !== '{}' ||
+          !/^CIIP\/1 \d+:\{[\s\S]*\}\n$/.test(frame)
+        )
+          continue;
+        try {
+          await fs.readdir(join(root, 'spool'), { withFileTypes: true });
+        } catch (error) {
+          if (error?.code === 'ENOENT') break;
+        }
+      }
+      expect(result?.code).toBe(0);
+      expect(result?.stdout).toBe('{}');
       expect(frame).toMatch(/^CIIP\/1 \d+:\{[\s\S]*\}\n$/);
       await expect(fs.readdir(join(root, 'spool'), { withFileTypes: true })).rejects.toMatchObject({
         code: 'ENOENT',

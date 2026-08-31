@@ -180,7 +180,11 @@ export function sendCanonicalIpc(
       socket.once('connect', () => {
         if (!settled) {
           try {
-            socket?.end(frame(safe.canonicalJson));
+            // Keep the write side open until the broker has returned its
+            // durable ACK. Some hosts deliver a half-close before delayed
+            // ACK bytes are observable, turning a valid handoff into a
+            // spurious malformed/timeout result.
+            socket?.write(frame(safe.canonicalJson));
           } catch {
             finish('unavailable');
           }
