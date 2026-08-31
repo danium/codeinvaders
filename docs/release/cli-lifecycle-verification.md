@@ -62,6 +62,16 @@ coverage verifies both ownership preservation and successful-backup cleanup.
 
 ## Remaining scope
 
+The repository gate now runs `pnpm release:lifecycle:test` after the build. That
+bounded harness executes the complete Claude lifecycle in two isolated
+scenarios on the host runner: clean and preconfigured. Each scenario covers
+install, start/status, doctor (including its synthetic recording round trip),
+canonical replay, successful upgrade, and ownership-aware uninstall. The
+preconfigured scenario asserts the unrelated `keep-me` hook survives. The CI
+workflow runs the gate on Windows, macOS, and Ubuntu; the resulting matrix
+check results will be the supported-platform evidence for OpenSpec task 9.10
+once the hosted matrix has passed.
+
 This evidence closes the local implementation lifecycle only. Clean-clone
 verification, the Windows/macOS/Linux CI matrix, real Codex and Claude session
 conformance, manual accessibility, browser performance/soak profiling, and

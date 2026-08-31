@@ -501,6 +501,10 @@ export class LocalBroker {
     return !!token && this.sessions.authenticate(token);
   }
   private handleIpc(socket: Socket): void {
+    // The adapter deadline is intentionally shorter than durable ingestion. A
+    // caller may close before the acknowledgement is ready; absorb the late
+    // write error so it cannot become an uncaught EPIPE/unhandled socket error.
+    socket.on('error', () => socket.destroy());
     let data: any = Buffer.alloc(0);
     const limiter = new RateLimiter(RUNTIME_LIMITS.maxRequestsPerMinute, 60_000);
     socket.on('data', (chunk: Uint8Array | string) => {

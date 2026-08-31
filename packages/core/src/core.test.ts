@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile, mkdir, readdir, symlink } from 'node:fs/promises';
+import {
+  mkdtemp,
+  rm,
+  readFile,
+  writeFile,
+  mkdir,
+  readdir,
+  symlink,
+  realpath,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validEventFixture } from '@codeinvaders/protocol/fixtures';
@@ -360,6 +369,13 @@ describe('canonical core', () => {
         ),
       ).toEqual([]);
       expect((await journal.events()).ok).toBe(true);
+      // Physical canonicalization can change the spelling of a trusted temp
+      // root (/var -> /private/var on macOS, or a runner junction on Windows).
+      const physicalRoot = await realpath(root);
+      if (physicalRoot !== root) {
+        await writeFile(join(root, 'aliased.jsonl'), 'owned', 'utf8');
+        expect((await safeDeleteOwned(root, 'aliased.jsonl')).ok).toBe(true);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

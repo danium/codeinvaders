@@ -77,13 +77,17 @@ describe('bounded ingress transport', () => {
     const { root, handoff } = await fixture();
     const endpoint = deriveInstallationEndpoint(root);
     let received = Buffer.from('');
+    let replyStarted = false;
     const server = await serverAt(endpoint.address, (socket) =>
       socket.on('data', (chunk) => {
         received = Buffer.concat([received, Buffer.from(chunk)]);
-        socket.write('A');
-        setTimeout(() => {
-          socket.end('CK\n');
-        }, 1);
+        if (!replyStarted) {
+          replyStarted = true;
+          socket.write('A');
+          setTimeout(() => {
+            socket.end('CK\n');
+          }, 1);
+        }
       }),
     );
     await expect(sendCanonicalIpc(endpoint, handoff)).resolves.toEqual({ status: 'acknowledged' });

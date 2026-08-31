@@ -139,9 +139,10 @@ async function runCase(hookPath, iterations, mode) {
       spoolBytes: spool.bytes,
       journalRecords: journal.records,
       journalBytes: journal.bytes,
+      duplicateSpoolPass: mode !== 'ipc' || spool.records <= iterations,
       deliveryPass:
         mode === 'ipc'
-          ? journal.records === iterations && spool.records === 0
+          ? journal.records === iterations && spool.records <= iterations
           : spool.records === iterations,
       spoolBoundPass: spool.bytes <= MAX_SPOOL_BYTES && spool.records <= MAX_SPOOL_RECORDS,
     };

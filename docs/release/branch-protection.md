@@ -12,11 +12,13 @@ Require these matrix checks from `.github/workflows/ci.yml`:
 - `Checks (macos-latest)`
 - `Checks (windows-latest)`
 
-Release tags must be created by the protected release workflow from an exact
-commit that passed all three checks. The release workflow receives only the
-minimum `contents: write`, `id-token: write`, and `attestations: write`
-permissions needed for artifacts and provenance. npm publication remains
-disabled.
+Release tags must match the repository's protected tag rules and point at the
+exact reviewed commit. On tag push, the release workflow checks out that tag
+and requires its complete repository gate to pass on all three supported
+runners before the artifact build, attestation, or GitHub release job can run.
+The release workflow receives only the minimum
+`contents: write`, `id-token: write`, and `attestations: write` permissions
+needed for artifacts and provenance. npm publication remains disabled.
 
 Repository configuration is verified with `gh api` during the public-repository
 task; this document is not evidence that the remote settings are already

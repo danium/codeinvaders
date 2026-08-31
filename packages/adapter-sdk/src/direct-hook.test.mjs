@@ -107,6 +107,9 @@ describe('prebuilt direct hook delivery', () => {
         remote: 'DIRECT_HOOK_REMOTE_CANARY',
         user: 'DIRECT_HOOK_USER_CANARY',
       };
+      const initial = await runHook(agent, root, input);
+      expect(initial.code).toBe(0);
+      expect(initial.stdout).toBe('{}');
       const results = await Promise.all(
         Array.from({ length: 8 }, () => runHook(agent, root, input)),
       );

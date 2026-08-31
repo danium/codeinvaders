@@ -125,6 +125,27 @@ describe('local broker integration', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it('absorbs a client disconnect before the durable acknowledgement', async () => {
+    const root = join(process.cwd(), `.local-runtime-late-ack-${Date.now()}`);
+    const broker = await startLocalBroker({ port: 0, dataRoot: root });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = createConnection(broker.ipcPath);
+        socket.once('error', reject);
+        socket.once('connect', () => {
+          socket.write(
+            encodeIpcFrame(JSON.stringify(testEvent('late-ack', 'late-stream', 'late-session'))),
+          );
+          socket.destroy();
+          setTimeout(resolve, 150);
+        });
+      });
+      expect(broker.status().running).toBe(true);
+    } finally {
+      await broker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('recovers every stream journal after restart', async () => {
     const root = join(process.cwd(), `.local-runtime-restart-${Date.now()}`);
     const first = await startLocalBroker({ port: 0, dataRoot: root });

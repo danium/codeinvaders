@@ -53,10 +53,8 @@ export async function safeDeleteOwned(root: string, name: string): Promise<SafeR
     if (!info.isFile()) return { ok: false, code: 'not-owned' };
     const verified = await verifyOwnedPath(root, p.value);
     if (!verified.ok) return verified;
-    // Windows realpath can canonicalize drive-letter/path casing differently
-    // from the lexical path, while still referring to the same file.
-    if (comparable(resolve(verified.value)) !== comparable(resolve(p.value)))
-      return { ok: false, code: 'unsafe-path' };
+    // Unlink the physically verified path. The lexical spelling may be an
+    // alias of the trusted root (for example /var -> /private/var on macOS).
     await unlink(verified.value);
     return { ok: true, value: undefined };
   } catch {

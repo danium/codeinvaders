@@ -23,8 +23,9 @@
     "offline:audit": "node scripts/security-audit.mjs --json",
     "release:test": "node scripts/release/release-scripts.test.mjs",
     "release:verify": "node scripts/release/verify-release.mjs",
+    "release:lifecycle:test": "node scripts/release/verify-cli-lifecycle.mjs",
     "release:prepare": "node scripts/release/prepare-release.mjs",
-    "check": "pnpm release:test && pnpm third-party-notices:check && pnpm offline:audit && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm offline:audit && node scripts/check-protocol-compatibility-docs.mjs"
+    "check": "pnpm release:test && pnpm third-party-notices:check && pnpm offline:audit && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm release:lifecycle:test && pnpm offline:audit && node scripts/check-protocol-compatibility-docs.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

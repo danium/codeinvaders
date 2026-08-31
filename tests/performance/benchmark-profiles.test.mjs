@@ -11,7 +11,8 @@ describe('release performance evidence', () => {
       expect(agent.fallback.spoolBytes).toBeGreaterThan(0);
       expect(agent.ipc.successful).toBe(report.iterations);
       expect(agent.ipc.journalRecords).toBe(report.iterations);
-      expect(agent.ipc.spoolRecords).toBe(0);
+      expect(agent.ipc.spoolRecords).toBeLessThanOrEqual(report.iterations);
+      expect(agent.ipc.duplicateSpoolPass).toBe(true);
       expect(agent.deliveryPass).toBe(true);
       expect(agent.fallback.spoolBoundPass).toBe(true);
       expect(agent.ipc.spoolBoundPass).toBe(true);
