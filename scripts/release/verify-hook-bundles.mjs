@@ -143,6 +143,9 @@ async function exercise({ label, bundle }) {
             { ...common, session_id: 'collision', event_id: 'a:checkpoint', hook: 'SessionStart' },
             { ...common, hook: 'PreCompact' },
             { ...common, hook: 'PostCompact' },
+            { ...common, hook: 'SubagentStart', agent_id: 'synthetic-agent' },
+            { ...common, hook: 'SubagentStop' },
+            { ...common, hook: 'SubagentStop', agent_id: 'synthetic-agent' },
             { ...common, hook: 'PreToolUse' },
           ]
         : [
@@ -170,6 +173,13 @@ async function exercise({ label, bundle }) {
               event_id: 'a:checkpoint',
               hook_event_name: 'SessionStart',
             },
+            { ...common, hook_event_name: 'SubagentStart', agent_id: 'synthetic-agent' },
+            { ...common, hook_event_name: 'SubagentStop' },
+            { ...common, hook_event_name: 'SubagentStop', agent_id: 'synthetic-agent' },
+            { ...common, hook_event_name: 'TaskCreated', task_id: 'synthetic-task' },
+            { ...common, hook_event_name: 'TaskCompleted', tool_name: 'Task', success: true },
+            { ...common, hook_event_name: 'PermissionRequest' },
+            { ...common, hook_event_name: 'PermissionDenied' },
             { ...common, hook_event_name: 'TaskCompleted', task_id: 'task-ignored' },
             { ...common, hook_event_name: 'PreToolUse' },
           ];
@@ -195,13 +205,18 @@ async function exercise({ label, bundle }) {
     const names = (await fs.readdir(spool).catch(() => [])).filter((name) =>
       name.endsWith('.ingress'),
     );
-    const expected = label === 'codex' ? 10 : 9;
+    const expected = label === 'codex' ? 12 : 13;
     if (names.length !== expected)
       fail(`${label} synthetic hooks created ${names.length} records instead of ${expected}`);
     const records = [];
     for (const name of names) {
       const body = await fs.readFile(join(spool, name), 'utf8');
-      if (body.includes('synthetic-session') || body.includes('fixture-workspace'))
+      if (
+        body.includes('synthetic-session') ||
+        body.includes('synthetic-agent') ||
+        body.includes('synthetic-task') ||
+        body.includes('fixture-workspace')
+      )
         fail(`${label} spool record retained native identity text`);
       let record;
       try {
@@ -227,8 +242,26 @@ async function exercise({ label, bundle }) {
     const quiescent = records.find((record) => record.type === 'turn.quiescent');
     if (!started?.scope?.turnId || started.scope.turnId !== quiescent?.scope?.turnId)
       fail(`${label} turn lifecycle did not retain one opaque turn identity`);
+    const agents = records.filter(
+      (record) => record.type === 'agent.spawned' || record.type === 'agent.state.changed',
+    );
+    if (
+      agents.length !== 2 ||
+      !agents[0]?.scope?.agentId ||
+      agents[0].scope.agentId !== agents[1]?.scope?.agentId
+    )
+      fail(`${label} fabricated an agent identity for an uncorrelatable close`);
     if (label === 'claude') {
-      const task = records.find((record) => record.type === 'task.completed');
+      const tasks = records.filter(
+        (record) => record.type === 'task.created' || record.type === 'task.completed',
+      );
+      const task = tasks.find((record) => record.type === 'task.completed');
+      if (
+        tasks.filter((record) => record.type === 'task.created').length !== 1 ||
+        tasks.filter((record) => record.type === 'task.completed').length !== 1 ||
+        records.some((record) => record.type === 'permission.resolved')
+      )
+        fail('claude fabricated an identity for an uncorrelatable lifecycle close');
       if (task?.semantic?.outcome !== 'success')
         fail('claude task completion is missing terminal success semantics');
     }

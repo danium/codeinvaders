@@ -140,9 +140,18 @@ async function eventFor(input, keyBytes, epochValue) {
   const task = native(input, payload, 'taskId', 'task_id');
   const permission = native(input, payload, 'permissionId', 'permission_id');
   const nativeEvent = native(input, payload, 'eventId', 'event_id', 'id');
-  const agentKey = mapped[0].startsWith('agent.') && !agent ? await derivedIdentity(keyBytes, session, 'agent') : agent;
-  const taskKey = mapped[0].startsWith('task.') && mapped[0] !== 'task.plan.reconciled' && !task ? await derivedIdentity(keyBytes, session, 'task') : task;
-  const permissionKey = mapped[0].startsWith('permission.') && !permission ? (operation || await derivedIdentity(keyBytes, session, 'permission')) : permission;
+  // Missing-ID openers are still real observations and receive an independent
+  // local identity. A closer is emitted only with a stable native correlation
+  // key, so it can never manufacture a second entity for the lifecycle pair.
+  const agentKey = mapped[0].startsWith('agent.')
+    ? (agent || (hook === 'SubagentStart' ? await derivedIdentity(keyBytes, session, 'agent') : undefined))
+    : undefined;
+  const taskKey = mapped[0].startsWith('task.') && mapped[0] !== 'task.plan.reconciled'
+    ? (task || (hook === 'TaskCreated' ? await derivedIdentity(keyBytes, session, 'task') : undefined))
+    : undefined;
+  const permissionKey = mapped[0].startsWith('permission.')
+    ? (permission || operation || (hook === 'PermissionRequest' ? await derivedIdentity(keyBytes, session, 'permission') : undefined))
+    : undefined;
   if ((mapped[0].startsWith('agent.') && !agentKey) || (mapped[0].startsWith('task.') && mapped[0] !== 'task.plan.reconciled' && !taskKey) || (mapped[0].startsWith('permission.') && !permissionKey)) return undefined;
   const workspace = native(input, payload, 'workspace', 'workspacePath', 'workspace_path', 'cwd');
   const repository = native(input, payload, 'repository', 'repositoryRoot', 'repository_root', 'repo');
