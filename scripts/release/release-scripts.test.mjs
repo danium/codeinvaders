@@ -70,4 +70,28 @@ assert.equal(
   }),
   'trusted CI provenance recorded',
 );
+assert.equal(
+  releaseProvenance(
+    {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_WORKFLOW: 'Release',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      CODEINVADERS_VERIFIED_RELEASE_TAG: 'v0.1.0',
+    },
+    '0.1.0',
+  ),
+  'GitHub Actions artifact attestation for the release archive',
+);
+assert.match(
+  releaseProvenance(
+    {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_WORKFLOW: 'Release',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      CODEINVADERS_VERIFIED_RELEASE_TAG: 'v0.1.1',
+    },
+    '0.1.0',
+  ),
+  /^pending \(not generated locally;/u,
+);
 process.stdout.write('release script self-test passed\n');

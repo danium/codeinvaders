@@ -107,11 +107,15 @@ export function filterPlatformPackages(records, lockfile) {
  * Describe provenance honestly for local preparation while retaining the
  * release workflow's attestation claim in its trusted tag context.
  */
-export function releaseProvenance(env = {}) {
+export function releaseProvenance(env = {}, version) {
+  const verifiedDispatchTag =
+    typeof version === 'string' &&
+    env.GITHUB_EVENT_NAME === 'workflow_dispatch' &&
+    env.CODEINVADERS_VERIFIED_RELEASE_TAG === `v${version}`;
   const trustedGitHubRelease =
     env.GITHUB_ACTIONS === 'true' &&
     env.GITHUB_WORKFLOW === 'Release' &&
-    env.GITHUB_REF_TYPE === 'tag';
+    (env.GITHUB_REF_TYPE === 'tag' || verifiedDispatchTag);
   const supplied = typeof env.RELEASE_PROVENANCE === 'string' ? env.RELEASE_PROVENANCE.trim() : '';
 
   if (trustedGitHubRelease) {
