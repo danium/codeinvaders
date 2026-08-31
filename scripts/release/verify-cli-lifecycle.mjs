@@ -83,7 +83,7 @@ async function filesUnder(path) {
 }
 
 async function runScenario(name, preconfigured) {
-  const scenarioRoot = await mkdtemp(join(tmpdir(), `codeinvaders-lifecycle-${name}-`));
+  const scenarioRoot = await mkdtemp(join(tmpdir(), `ci-${name[0]}-`));
   const home = join(scenarioRoot, 'home');
   const config = join(home, '.claude', 'settings.json');
   const data = join(scenarioRoot, 'data');
