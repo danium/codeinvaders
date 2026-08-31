@@ -1270,7 +1270,7 @@ async function waitForRuntime(
   childPid: number,
   expectedPort: number,
 ): Promise<boolean> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     try {
       const value = JSON.parse(await readFile(paths.runtimeFile, 'utf8')) as {
         pid?: number;
