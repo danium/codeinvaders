@@ -120,6 +120,8 @@ describe('Codex adapter boundary', () => {
       ['SubagentStart', 'agent.spawned'],
       ['SubagentStop', 'agent.checkpoint'],
       ['Stop', 'turn.quiescent'],
+      ['PreCompact', 'session.compacted'],
+      ['PostCompact', 'session.compacted'],
       ['Compact', 'session.compacted'],
       ['TaskPlanUpdated', 'task.plan.reconciled'],
     ] as const;
